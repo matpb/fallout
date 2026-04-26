@@ -1,4 +1,4 @@
-name: Deploy to Cloudflare Pages
+name: CI + Deploy
 
 on:
   push:
@@ -16,7 +16,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Type-check + e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Type-check
+        run: npm run check
+      - name: Build
+        env:
+          NODE_ENV: production
+        run: npm run build
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Start preview server
+        run: |
+          npx vite preview --port 4173 --host 127.0.0.1 > preview.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -s -o /dev/null http://127.0.0.1:4173/; then
+              echo "preview ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "preview never came up"; cat preview.log; exit 1
+      - name: Run e2e suite
+        run: npm run test:e2e -- http://127.0.0.1:4173
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     name: Build & deploy
     environment:

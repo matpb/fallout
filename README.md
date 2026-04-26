@@ -42,6 +42,17 @@ npm run dev          # dev server with HMR
 npm run check        # svelte-check (TS + Svelte)
 npm run build        # production build → build/
 npm run preview      # serve build/ locally
+npm run test:e2e     # run Playwright headless e2e suite (needs preview running)
+```
+
+To run the full CI flow locally:
+
+```sh
+npm run check && npm run build
+# in one terminal:
+npm run preview -- --port 4173
+# in another:
+npm run test:e2e
 ```
 
 ## Deployment

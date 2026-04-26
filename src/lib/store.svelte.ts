@@ -25,7 +25,11 @@ class CharactersStore {
 	}
 
 	async upsert(c: Character) {
-		await dbSave(c);
+		// Deep-clone before save: callers may pass Svelte 5 reactive proxies,
+		// which Dexie's internal structuredClone can't handle. JSON round-trip
+		// produces a plain object that Dexie writes successfully.
+		const plain = JSON.parse(JSON.stringify(c)) as Character;
+		await dbSave(plain);
 		await this.refresh();
 	}
 

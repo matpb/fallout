@@ -98,6 +98,7 @@
 					{#if editingName}
 						<input
 							class="pip-input max-w-xs"
+							data-testid="name-input"
 							bind:value={character.name}
 							onblur={() => (editingName = false)}
 							onkeydown={(e) => e.key === 'Enter' && (editingName = false)}
@@ -106,6 +107,7 @@
 						<button
 							type="button"
 							class="pip-display pip-glow text-3xl"
+							data-testid="name-display"
 							onclick={() => (editingName = true)}>{character.name}</button
 						>
 					{/if}
@@ -119,6 +121,7 @@
 						<span class="opacity-70">LEVEL</span>
 						<input
 							class="pip-input"
+							data-testid="level-input"
 							type="number"
 							min="1"
 							max="100"
@@ -129,12 +132,13 @@
 					</label>
 					<label class="text-xs">
 						<span class="opacity-70">XP</span>
-						<input class="pip-input" type="number" min="0" bind:value={character.xp} />
+						<input class="pip-input" data-testid="xp-input" type="number" min="0" bind:value={character.xp} />
 					</label>
 					<label class="text-xs">
 						<span class="opacity-70">HP / {derived_.maxHp}</span>
 						<input
 							class="pip-input"
+							data-testid="hp-input"
 							type="number"
 							min="0"
 							max={derived_.maxHp}
@@ -151,6 +155,7 @@
 						<span class="opacity-70">LUCK / {derived_.maxLuck}</span>
 						<input
 							class="pip-input"
+							data-testid="luck-input"
 							type="number"
 							min="0"
 							max={derived_.maxLuck}
@@ -207,6 +212,7 @@
 					<div class="text-xs opacity-70">CAPS</div>
 					<input
 						class="pip-input pip-display !pip-glow !text-2xl"
+						data-testid="caps-input"
 						type="number"
 						min="0"
 						bind:value={character.caps}
@@ -214,7 +220,7 @@
 				</div>
 				<div>
 					<div class="text-xs opacity-70">TRINKET</div>
-					<input class="pip-input" bind:value={character.trinket} />
+					<input class="pip-input" data-testid="trinket-input" bind:value={character.trinket} />
 				</div>
 			</div>
 		</section>
@@ -296,20 +302,21 @@
 		<section class="pip-panel">
 			<div class="pip-panel-header flex items-center justify-between">
 				<span>INVENTORY</span>
-				<button class="text-xs underline no-print" onclick={addInventoryItem}>[ + add item ]</button>
+				<button class="text-xs underline no-print" data-testid="inv-add" onclick={addInventoryItem}>[ + add item ]</button>
 			</div>
-			<div class="space-y-2 p-4 sm:p-6">
+			<div class="space-y-2 p-4 sm:p-6" data-testid="inv-list">
 				{#if character.inventory.length === 0}
 					<p class="text-sm opacity-70">[ pockets empty ]</p>
 				{/if}
-				{#each character.inventory as item (item.id)}
-					<div class="grid grid-cols-12 gap-1 text-xs">
-						<input class="pip-input col-span-5" placeholder="Name" bind:value={item.name} />
+				{#each character.inventory as item, i (item.id)}
+					<div class="grid grid-cols-12 gap-1 text-xs" data-testid={`inv-row-${i}`}>
+						<input class="pip-input col-span-5" placeholder="Name" data-testid={`inv-name-${i}`} bind:value={item.name} />
 						<input
 							class="pip-input col-span-1"
 							type="number"
 							min="1"
 							placeholder="Qty"
+							data-testid={`inv-qty-${i}`}
 							bind:value={item.qty}
 						/>
 						<input
@@ -318,11 +325,13 @@
 							min="0"
 							step="0.1"
 							placeholder="lbs"
+							data-testid={`inv-weight-${i}`}
 							bind:value={item.weight}
 						/>
-						<input class="pip-input col-span-4" placeholder="Notes" bind:value={item.notes} />
+						<input class="pip-input col-span-4" placeholder="Notes" data-testid={`inv-notes-${i}`} bind:value={item.notes} />
 						<button
 							class="pip-btn pip-btn-danger col-span-1 px-1 py-0 text-center no-print"
+							data-testid={`inv-remove-${i}`}
 							onclick={() => removeInventoryItem(item.id)}>X</button
 						>
 					</div>
@@ -334,18 +343,18 @@
 		<section class="pip-panel">
 			<div class="pip-panel-header">NOTES</div>
 			<div class="p-4 sm:p-6">
-				<textarea class="pip-textarea min-h-[10rem]" bind:value={character.notes}></textarea>
+				<textarea class="pip-textarea min-h-[10rem]" data-testid="notes-input" bind:value={character.notes}></textarea>
 			</div>
 		</section>
 
 		<!-- Actions -->
 		<div class="flex flex-wrap gap-2 no-print">
-			<button class="pip-btn pip-glow-amber" disabled={saving} onclick={save}>
+			<button class="pip-btn pip-glow-amber" data-testid="save-btn" disabled={saving} onclick={save}>
 				{saving ? '[ saving… ]' : '[ ✓ ] Save changes'}
 			</button>
 			<button class="pip-btn" onclick={() => window.print()}>[ ⎙ ] Print sheet</button>
 			<a class="pip-btn" href="/">‹ Back to roster</a>
-			<button class="pip-btn pip-btn-danger ml-auto" onclick={remove}>[ X ] Delete</button>
+			<button class="pip-btn pip-btn-danger ml-auto" data-testid="delete-btn" onclick={remove}>[ X ] Delete</button>
 		</div>
 	</div>
 {/if}
