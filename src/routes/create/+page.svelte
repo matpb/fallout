@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { ORIGINS, ORIGIN_BY_KEY, SURVIVOR_TRAITS } from '$lib/fallout/origins';
-	import { PERKS, PERKS_BY_KEY } from '$lib/fallout/perks';
+	import { PERKS, PERKS_BY_KEY, CATEGORY_LABELS, type PerkCategory, type PerkDef } from '$lib/fallout/perks';
 	import {
 		SKILL_KEYS,
 		SKILL_LABELS,
+		SKILL_DESCRIPTIONS,
 		SKILL_DEFAULT_ATTR,
 		SPECIAL_KEYS,
 		SPECIAL_LABELS,
@@ -111,19 +112,57 @@
 
 	// Perk pick
 	let chosenPerkKey = $state<string>('');
+	let perkFilter = $state<'all' | PerkCategory>('all');
+	let showUnavailable = $state(true);
+
+	function unmetReason(p: PerkDef): string | null {
+		if (p.requirements.notRobot && working.originKey === 'misterHandy') return 'Not available to robots';
+		if (p.requirements.level && working.level < p.requirements.level) {
+			return `Needs Level ${p.requirements.level}`;
+		}
+		if (p.requirements.special) {
+			const missing: string[] = [];
+			for (const [k, min] of Object.entries(p.requirements.special)) {
+				const cur = working.special[k as SpecialKey];
+				if (cur < (min as number)) {
+					missing.push(`${SPECIAL_LABELS[k as SpecialKey].short} ${cur}/${min}`);
+				}
+			}
+			if (missing.length) return `Needs ${missing.join(', ')}`;
+		}
+		return null;
+	}
 	function meetsRequirements(perkKey: string): boolean {
 		const p = PERKS_BY_KEY[perkKey];
 		if (!p) return false;
-		if (p.requirements.notRobot && working.originKey === 'misterHandy') return false;
-		if (p.requirements.level && working.level < p.requirements.level) return false;
-		if (p.requirements.special) {
-			for (const [k, min] of Object.entries(p.requirements.special)) {
-				if (working.special[k as SpecialKey] < (min as number)) return false;
-			}
-		}
-		return true;
+		return unmetReason(p) === null;
 	}
-	let availablePerks = $derived(PERKS.filter((p) => meetsRequirements(p.key)));
+
+	let visiblePerks = $derived(
+		PERKS.filter((p) => {
+			if (perkFilter !== 'all' && p.category !== perkFilter) return false;
+			if (!showUnavailable && !meetsRequirements(p.key)) return false;
+			return true;
+		}).sort((a, b) => {
+			// Available first, then by name
+			const aOk = meetsRequirements(a.key) ? 0 : 1;
+			const bOk = meetsRequirements(b.key) ? 0 : 1;
+			if (aOk !== bOk) return aOk - bOk;
+			return a.name.localeCompare(b.name);
+		})
+	);
+
+	const PERK_CATEGORIES: PerkCategory[] = [
+		'combat',
+		'defense',
+		'tactical',
+		'crit',
+		'stealth',
+		'crafting',
+		'social',
+		'utility',
+		'survival'
+	];
 
 	let derived_ = $derived(deriveAll(applyOriginToBase(working)));
 
@@ -204,12 +243,33 @@
 
 		{#if step === 1}
 			<div class="space-y-4">
+				<details class="border border-[var(--color-pip-green-dim)] p-3 text-xs">
+					<summary class="cursor-pointer text-sm">[ ? ] First time? Read this.</summary>
+					<div class="mt-2 space-y-2 opacity-90">
+						<p>
+							<em>Fallout: The Roleplaying Game</em> (Modiphius) is a tabletop game using the
+							<span class="pip-glow">2d20 system</span>. You play a character in the post-nuclear wasteland
+							— shooting raiders, scavenging ruins, modding gear, dealing with mutants and faction politics.
+						</p>
+						<p>
+							This wizard walks you through the 6 steps from the rulebook: pick an
+							<span class="pip-glow">Origin</span> (your species/background), distribute
+							<span class="pip-glow">S.P.E.C.I.A.L.</span> attribute points, choose
+							<span class="pip-glow-amber">Tag Skills</span> + spend skill points, pick a starting
+							<span class="pip-glow">Perk</span>, set a trinket, confirm.
+						</p>
+						<p class="opacity-70">
+							Each step has a [ ? ] expandable explainer like this one. Hit "Next ›" when you're done.
+						</p>
+					</div>
+				</details>
+
 				<label class="block">
 					<span class="text-xs opacity-70">CHARACTER NAME</span>
 					<input class="pip-input mt-1" bind:value={working.name} maxlength="40" />
 				</label>
 				<div>
-					<div class="text-xs opacity-70">CHOOSE ORIGIN</div>
+					<div class="text-xs opacity-70">CHOOSE ORIGIN — your species and background</div>
 					<div class="mt-2 grid gap-3 sm:grid-cols-2">
 						{#each ORIGINS as o (o.key)}
 							<button
@@ -239,6 +299,25 @@
 			</div>
 		{:else if step === 2}
 			<div class="space-y-4">
+				<details class="border border-[var(--color-pip-green-dim)] p-3 text-xs">
+					<summary class="cursor-pointer text-sm">[ ? ] What is S.P.E.C.I.A.L.?</summary>
+					<div class="mt-2 space-y-2 opacity-90">
+						<p>
+							S.P.E.C.I.A.L. is the seven-attribute backbone of Fallout. Every skill test rolls
+							<span class="pip-glow">2d20 ≤ (attribute + skill rank)</span>. Higher attributes mean more dice land under the target number, more
+							successes, more Action Points to spend.
+						</p>
+						<p>
+							You start with 5 in each, get 5 points to spend (max 10 per stat). Drop one to 4 to free up an
+							extra point. Some origins shift these caps: Super Mutant maxes STR/END at 12 but caps INT/CHA at 6;
+							Mister Handy ignores STR for carry weight.
+						</p>
+						<p class="opacity-70">
+							Tip: a focused 8/7/6/6/5/4/4 spread tends to play better than balanced 6/6/6/6/6/5/5 in this
+							system, because tag skills + concentrated SPECIAL hit critical thresholds for perks.
+						</p>
+					</div>
+				</details>
 				<p class="text-sm opacity-80">
 					&gt; All attributes start at 5. Spend points to raise. Drop one below 5 to gain a point.
 					{#if origin.specialBonuses}
@@ -251,33 +330,45 @@
 					&gt; Points remaining:
 					<span class="pip-glow text-xl">{specialRemaining}</span> / {specialBudget}
 				</div>
-				<div class="grid gap-2 sm:grid-cols-2">
+				<div class="grid gap-2">
 					{#each SPECIAL_KEYS as k (k)}
 						{@const max = specialMaxFor(working, k)}
-						<div
-							class="flex items-center justify-between border border-[var(--color-pip-green-dim)] p-3"
-						>
-							<div>
-								<div class="pip-display pip-glow text-lg">
-									{SPECIAL_LABELS[k].short} —
-									<span class="opacity-80">{SPECIAL_LABELS[k].full}</span>
+						{@const meta = SPECIAL_LABELS[k]}
+						<div class="border border-[var(--color-pip-green-dim)] p-3">
+							<div class="flex items-center justify-between gap-2">
+								<div>
+									<div class="pip-display pip-glow text-lg">
+										{meta.short} — <span class="opacity-80">{meta.full}</span>
+									</div>
+									<div class="text-xs opacity-80">{meta.summary}</div>
 								</div>
-								<div class="text-xs opacity-60">max {max}</div>
+								<div class="flex shrink-0 items-center gap-2">
+									<button
+										class="pip-btn px-3 py-0 text-lg"
+										onclick={() => bumpSpecial(k, -1)}
+										disabled={working.special[k] <= 4}>-</button
+									>
+									<span class="pip-glow w-8 text-center text-xl">{working.special[k]}</span>
+									<button
+										class="pip-btn px-3 py-0 text-lg"
+										onclick={() => bumpSpecial(k, 1)}
+										disabled={working.special[k] >= max ||
+											(specialRemaining <= 0 && working.special[k] >= 5)}>+</button
+									>
+								</div>
 							</div>
-							<div class="flex items-center gap-2">
-								<button
-									class="pip-btn px-3 py-0 text-lg"
-									onclick={() => bumpSpecial(k, -1)}
-									disabled={working.special[k] <= 4}>-</button
-								>
-								<span class="pip-glow w-8 text-center text-xl">{working.special[k]}</span>
-								<button
-									class="pip-btn px-3 py-0 text-lg"
-									onclick={() => bumpSpecial(k, 1)}
-									disabled={working.special[k] >= max ||
-										(specialRemaining <= 0 && working.special[k] >= 5)}>+</button
-								>
-							</div>
+							<details class="mt-2 text-xs">
+								<summary class="cursor-pointer opacity-70">[ ? ] What does {meta.short} do?</summary>
+								<div class="mt-1 space-y-1 opacity-90">
+									<ul class="list-inside list-['»'] pl-2">
+										{#each meta.uses as u (u)}
+											<li>{u}</li>
+										{/each}
+									</ul>
+									<p class="pip-glow-amber mt-1 text-xs">{meta.feel}</p>
+									<p class="opacity-60">Max for this origin: {max}</p>
+								</div>
+							</details>
 						</div>
 					{/each}
 				</div>
@@ -306,9 +397,33 @@
 					</div>
 				{/if}
 
+				<details class="border border-[var(--color-pip-green-dim)] p-3 text-xs">
+					<summary class="cursor-pointer text-sm">[ ? ] How do skills work?</summary>
+					<div class="mt-2 space-y-2 opacity-90">
+						<p>
+							Each skill pairs with an attribute. Your <span class="pip-glow">target number</span>
+							for a roll = attribute + skill rank. Roll 2d20, every die ≤ TN scores 1 success. The GM sets
+							a difficulty (1–5 successes); excess successes become Action Points.
+						</p>
+						<p>
+							A natural <span class="pip-glow">1</span> is a critical (2 successes); a natural
+							<span class="pip-glow-amber">20</span> is a complication.
+						</p>
+						<p>
+							<span class="pip-glow-amber">★ Tag Skills</span> are your specialties. On a Tag skill, ANY die
+							rolling ≤ skill rank also crits — so a Sneak 3 / TN 12 character on Tag rolls crits on 1, 2,
+							OR 3, not just 1. Tag Skills are the most powerful lever in the system.
+						</p>
+						<p class="opacity-70">
+							Skill cap at character creation = 3. After play starts, max rank = 6. Every level gives +1
+							skill rank to spend.
+						</p>
+					</div>
+				</details>
+
 				<div>
 					<div class="text-xs opacity-70">
-						TAG SKILLS — pick {totalTagAllowed} (each starts at rank 2)
+						TAG SKILLS — pick {totalTagAllowed} (each starts at rank 2, click skill name to toggle)
 						{#if working.originKey === 'ghoul'}<span class="opacity-60"
 								>· Ghoul auto-tag: Survival</span
 							>{/if}
@@ -319,13 +434,14 @@
 							>{/if}
 					</div>
 					<div class="mt-2 text-xs">
-						selected: {working.tagSkills.length} / {totalTagAllowed}
+						selected: <span class="pip-glow">{working.tagSkills.length}</span> / {totalTagAllowed}
 					</div>
 				</div>
 
 				<div>
 					<div class="text-xs opacity-70">
-						SKILL POINTS — {skillRemaining} / {skillBudget} remaining (cap rank {skillRankCap} at level 1)
+						SKILL POINTS — <span class="pip-glow">{skillRemaining}</span> / {skillBudget} remaining
+						(budget = 9 + INT, cap rank {skillRankCap} at level 1)
 					</div>
 					<div class="mt-2 grid gap-2 sm:grid-cols-2">
 						{#each SKILL_KEYS as k (k)}
@@ -334,36 +450,39 @@
 							{@const attr = SKILL_DEFAULT_ATTR[k]}
 							{@const tn = working.special[attr] + working.skills[k]}
 							<div
-								class="flex items-center justify-between border p-2 text-xs {isTag
+								class="border p-2 text-xs {isTag
 									? 'border-[var(--color-pip-amber)] bg-[rgba(255,176,0,0.05)]'
 									: 'border-[var(--color-pip-green-dim)]'}"
 							>
-								<button
-									type="button"
-									onclick={() => toggleTag(k)}
-									class="flex-1 text-left"
-									title="Click to toggle Tag"
-								>
-									<div class="pip-display text-base {isTag ? 'pip-glow-amber' : 'pip-glow'}">
-										{isTag ? '★' : ' '} {SKILL_LABELS[k]}
-									</div>
-									<div class="opacity-60">
-										{SPECIAL_LABELS[attr].short} · TN {tn}
-									</div>
-								</button>
-								<div class="flex items-center gap-1">
+								<div class="flex items-center justify-between gap-2">
 									<button
-										class="pip-btn px-2 py-0"
-										onclick={() => bumpSkill(k, -1)}
-										disabled={working.skills[k] <= tagBase}>-</button
+										type="button"
+										onclick={() => toggleTag(k)}
+										class="flex-1 text-left"
+										title="Click to toggle Tag"
 									>
-									<span class="w-6 text-center">{working.skills[k]}</span>
-									<button
-										class="pip-btn px-2 py-0"
-										onclick={() => bumpSkill(k, 1)}
-										disabled={working.skills[k] >= skillRankCap || skillRemaining <= 0}>+</button
-									>
+										<div class="pip-display text-base {isTag ? 'pip-glow-amber' : 'pip-glow'}">
+											{isTag ? '★' : '☐'} {SKILL_LABELS[k]}
+										</div>
+										<div class="opacity-60">
+											{SPECIAL_LABELS[attr].short} · TN {tn}
+										</div>
+									</button>
+									<div class="flex items-center gap-1">
+										<button
+											class="pip-btn px-2 py-0"
+											onclick={() => bumpSkill(k, -1)}
+											disabled={working.skills[k] <= tagBase}>-</button
+										>
+										<span class="w-6 text-center">{working.skills[k]}</span>
+										<button
+											class="pip-btn px-2 py-0"
+											onclick={() => bumpSkill(k, 1)}
+											disabled={working.skills[k] >= skillRankCap || skillRemaining <= 0}>+</button
+										>
+									</div>
 								</div>
+								<div class="mt-1 text-[0.7rem] opacity-70">{SKILL_DESCRIPTIONS[k]}</div>
 							</div>
 						{/each}
 					</div>
@@ -371,23 +490,89 @@
 			</div>
 		{:else if step === 4}
 			<div class="space-y-3">
-				<p class="text-sm opacity-80">
-					&gt; Pick your first perk. Only perks you meet the requirements for are shown.
-				</p>
+				<details class="border border-[var(--color-pip-green-dim)] p-3 text-xs">
+					<summary class="cursor-pointer text-sm">[ ? ] What are perks?</summary>
+					<div class="mt-2 space-y-2 opacity-90">
+						<p>
+							Perks are your character's edges — re-rolls, bonus damage, special abilities, crafting
+							access, "smite"-like burst options. Each level grants 1 perk pick (most have 1–4 ranks).
+						</p>
+						<p>
+							Each perk has requirements: usually a minimum SPECIAL attribute, sometimes a level or
+							another perk rank. We show <span class="pip-glow">all 45+ core perks</span> below — the
+							ones you can pick now are highlighted, the rest are grayed out with the exact gap (e.g.
+							"Needs LCK 8/9").
+						</p>
+						<p class="opacity-70">
+							Tip: see what's gated and consider whether to bend a SPECIAL pick to unlock a key
+							perk. Better Criticals (Smite for ranged) needs LCK 9; Slayer (Smite for melee) needs STR 8.
+						</p>
+					</div>
+				</details>
+
+				<div class="text-sm">
+					&gt; Pick your first perk. Currently chosen: <span class="pip-glow"
+						>{chosenPerkKey ? PERKS_BY_KEY[chosenPerkKey].name : '— none —'}</span
+					>
+				</div>
+
+				<div class="flex flex-wrap items-center gap-2 text-xs">
+					<span class="opacity-70">FILTER:</span>
+					<button
+						class="pip-btn px-2 py-0 text-xs {perkFilter === 'all'
+							? 'bg-[var(--color-pip-green-dim)] text-[#001500]'
+							: ''}"
+						onclick={() => (perkFilter = 'all')}>All</button
+					>
+					{#each PERK_CATEGORIES as cat (cat)}
+						<button
+							class="pip-btn px-2 py-0 text-xs {perkFilter === cat
+								? 'bg-[var(--color-pip-green-dim)] text-[#001500]'
+								: ''}"
+							onclick={() => (perkFilter = cat)}>{CATEGORY_LABELS[cat].split(' — ')[0]}</button
+						>
+					{/each}
+					<label class="ml-auto flex items-center gap-1">
+						<input type="checkbox" bind:checked={showUnavailable} />
+						<span>Show unavailable</span>
+					</label>
+				</div>
+
 				<div class="grid gap-2">
-					{#each availablePerks as p (p.key)}
+					{#each visiblePerks as p (p.key)}
+						{@const reason = unmetReason(p)}
+						{@const ok = reason === null}
+						{@const selected = chosenPerkKey === p.key}
 						<button
 							type="button"
-							class="border p-2 text-left text-xs transition {chosenPerkKey === p.key
+							disabled={!ok}
+							class="border p-2 text-left text-xs transition {selected
 								? 'border-[var(--color-pip-green)] bg-[rgba(21,255,96,0.08)]'
-								: 'border-[var(--color-pip-green-dim)] hover:border-[var(--color-pip-green)]'}"
-							onclick={() => (chosenPerkKey = p.key)}
+								: ok
+									? 'border-[var(--color-pip-green-dim)] hover:border-[var(--color-pip-green)]'
+									: 'border-[var(--color-pip-green-dim)] opacity-40'}"
+							onclick={() => ok && (chosenPerkKey = p.key)}
 						>
-							<div class="pip-display pip-glow text-base">
-								{p.name} <span class="opacity-60">({p.ranks} rank{p.ranks > 1 ? 's' : ''})</span>
+							<div class="flex flex-wrap items-baseline justify-between gap-2">
+								<div class="pip-display pip-glow text-base">
+									{p.name}
+									<span class="opacity-60">({p.ranks} rank{p.ranks > 1 ? 's' : ''})</span>
+								</div>
+								<div class="text-xs">
+									{#if !ok}
+										<span class="pip-glow-amber">✗ {reason}</span>
+									{:else}
+										<span class="opacity-60">{CATEGORY_LABELS[p.category].split(' — ')[0]}</span>
+									{/if}
+								</div>
 							</div>
-							<div class="opacity-80">{p.text}</div>
+							<div class="mt-1 opacity-80">{p.text}</div>
+							{#if p.flavor}
+								<div class="mt-1 text-[0.7rem] opacity-60">→ {p.flavor}</div>
+							{/if}
 						</button>
+					{:else}
+						<p class="opacity-70 text-xs">[ no perks match this filter ]</p>
 					{/each}
 				</div>
 			</div>
