@@ -1,0 +1,210 @@
+@import 'tailwindcss';
+
+@theme {
+	--color-pip-bg: #0b1209;
+	--color-pip-bg-2: #0d1a0c;
+	--color-pip-green: #15ff60;
+	--color-pip-green-dim: #0a8a3a;
+	--color-pip-green-faint: #052010;
+	--color-pip-amber: #ffb000;
+	--color-pip-red: #ff2050;
+	--font-mono: 'Share Tech Mono', 'Monaco', 'Consolas', monospace;
+	--font-display: 'VT323', 'Share Tech Mono', monospace;
+}
+
+:root {
+	color-scheme: dark;
+}
+
+html,
+body {
+	background: var(--color-pip-bg);
+	color: var(--color-pip-green);
+	font-family: var(--font-mono);
+	min-height: 100vh;
+	margin: 0;
+	padding: 0;
+	-webkit-font-smoothing: antialiased;
+	letter-spacing: 0.02em;
+}
+
+body {
+	background:
+		radial-gradient(ellipse at center, rgba(21, 255, 96, 0.06) 0%, transparent 70%),
+		var(--color-pip-bg);
+	min-height: 100dvh;
+	overflow-x: hidden;
+}
+
+/* CRT scanline overlay — fixed, non-interactive */
+body::before {
+	content: '';
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+	z-index: 100;
+	background:
+		repeating-linear-gradient(
+			to bottom,
+			rgba(0, 0, 0, 0) 0px,
+			rgba(0, 0, 0, 0) 2px,
+			rgba(0, 0, 0, 0.18) 3px,
+			rgba(0, 0, 0, 0.18) 3px
+		);
+	mix-blend-mode: multiply;
+}
+
+/* Subtle CRT vignette */
+body::after {
+	content: '';
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+	z-index: 99;
+	background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+/* Glow text utility */
+.pip-glow {
+	text-shadow:
+		0 0 4px var(--color-pip-green),
+		0 0 12px rgba(21, 255, 96, 0.6);
+}
+
+.pip-glow-amber {
+	color: var(--color-pip-amber);
+	text-shadow:
+		0 0 4px var(--color-pip-amber),
+		0 0 12px rgba(255, 176, 0, 0.6);
+}
+
+.pip-display {
+	font-family: var(--font-display);
+}
+
+/* Pip-Boy bordered panel */
+.pip-panel {
+	border: 2px solid var(--color-pip-green-dim);
+	background: rgba(21, 255, 96, 0.03);
+	box-shadow:
+		inset 0 0 24px rgba(21, 255, 96, 0.08),
+		0 0 8px rgba(21, 255, 96, 0.15);
+}
+
+.pip-panel-header {
+	background: var(--color-pip-green-dim);
+	color: #001500;
+	padding: 0.25rem 0.75rem;
+	font-weight: bold;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+/* Buttons */
+.pip-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 1rem;
+	border: 1px solid var(--color-pip-green-dim);
+	background: rgba(21, 255, 96, 0.04);
+	color: var(--color-pip-green);
+	font-family: var(--font-mono);
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	cursor: pointer;
+	transition: all 0.12s ease;
+}
+
+.pip-btn:hover:not(:disabled) {
+	background: var(--color-pip-green-dim);
+	color: #001500;
+	box-shadow: 0 0 12px rgba(21, 255, 96, 0.5);
+}
+
+.pip-btn:disabled {
+	opacity: 0.35;
+	cursor: not-allowed;
+}
+
+.pip-btn-danger {
+	border-color: var(--color-pip-red);
+	color: var(--color-pip-red);
+}
+.pip-btn-danger:hover:not(:disabled) {
+	background: var(--color-pip-red);
+	color: #1a0006;
+	box-shadow: 0 0 12px rgba(255, 32, 80, 0.55);
+}
+
+/* Inputs */
+.pip-input,
+.pip-select,
+.pip-textarea {
+	background: var(--color-pip-bg-2);
+	border: 1px solid var(--color-pip-green-dim);
+	color: var(--color-pip-green);
+	font-family: var(--font-mono);
+	padding: 0.4rem 0.6rem;
+	width: 100%;
+	transition: all 0.1s ease;
+}
+
+.pip-input:focus,
+.pip-select:focus,
+.pip-textarea:focus {
+	outline: none;
+	border-color: var(--color-pip-green);
+	box-shadow: 0 0 8px rgba(21, 255, 96, 0.4);
+}
+
+.pip-input[type='number'] {
+	font-variant-numeric: tabular-nums;
+}
+
+/* Selection */
+::selection {
+	background: var(--color-pip-green);
+	color: #001500;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+::-webkit-scrollbar-track {
+	background: var(--color-pip-bg);
+}
+::-webkit-scrollbar-thumb {
+	background: var(--color-pip-green-dim);
+	border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-pip-green);
+}
+
+/* Print: clean character sheet */
+@media print {
+	body::before,
+	body::after {
+		display: none !important;
+	}
+	body {
+		background: white !important;
+		color: black !important;
+	}
+	.no-print {
+		display: none !important;
+	}
+	.pip-panel {
+		border-color: #333 !important;
+		box-shadow: none !important;
+		background: white !important;
+	}
+	.pip-glow,
+	.pip-glow-amber {
+		text-shadow: none !important;
+		color: black !important;
+	}
+}
