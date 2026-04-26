@@ -46,13 +46,16 @@ npm run preview      # serve build/ locally
 
 ## Deployment
 
-The project is configured for **Cloudflare Pages**:
+Deployed on **[Cloudflare Pages](https://pages.cloudflare.com/)** via GitHub Actions:
 
-- Build command: `npm run build`
-- Build output dir: `build`
-- Node version: 20+
+- Every push to `main` deploys to production (`fallout.matpb.com`)
+- Every PR builds a preview at `<branch>.fallout-n8s.pages.dev`
+- Build command: `npm run build`, output: `build/`
+- Node 22, ~40s end-to-end
 
-Custom domain `fallout.matpb.com` is mapped via Cloudflare DNS (CNAME → `fallout-pwa.pages.dev`).
+Required repo secrets: `CLOUDFLARE_API_TOKEN` (with Account → Cloudflare Pages → Edit + Zone → DNS → Edit) and `CLOUDFLARE_ACCOUNT_ID`.
+
+Custom domain `fallout.matpb.com` is a proxied CNAME → `fallout-n8s.pages.dev` in Cloudflare DNS.
 
 ## Disclaimer
 
