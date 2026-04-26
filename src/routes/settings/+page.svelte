@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { characters, downloadBackup, restoreFromFile, dbStats } from '$lib/store';
+	import { characters, downloadBackup, restoreFromFile, dbStats } from '$lib/store.svelte';
 
 	let stats = $state<{ count: number; sizeKB: number } | null>(null);
 	let restoreMode = $state<'merge' | 'replace'>('merge');

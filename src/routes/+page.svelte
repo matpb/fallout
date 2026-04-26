@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { characters } from '$lib/store';
+	import { characters } from '$lib/store.svelte';
 	import { ORIGIN_BY_KEY } from '$lib/fallout/origins';
 	import { deriveAll } from '$lib/fallout/derived';
 

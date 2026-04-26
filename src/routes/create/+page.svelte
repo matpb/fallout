@@ -14,7 +14,7 @@
 	} from '$lib/fallout/types';
 	import { applyOriginToBase, createBlankCharacter } from '$lib/fallout/factory';
 	import { deriveAll, specialMaxFor } from '$lib/fallout/derived';
-	import { characters } from '$lib/store';
+	import { characters } from '$lib/store.svelte';
 
 	type Step = 1 | 2 | 3 | 4 | 5 | 6;
 	let step = $state<Step>(1);
@@ -150,13 +150,21 @@
 	}
 
 	async function finish() {
-		// Apply origin SPECIAL bonuses to base before save
-		const final = applyOriginToBase(working);
-		const d = deriveAll(final);
-		final.currentHp = d.maxHp;
-		final.currentLuck = d.maxLuck;
-		await characters.upsert(final);
-		await goto(`/character/${final.id}`);
+		try {
+			// Deep clone so origin-bonus mutation doesn't ripple back into reactive state
+			const final = structuredClone($state.snapshot(working));
+			const withBonus = applyOriginToBase(final);
+			const d = deriveAll(withBonus);
+			withBonus.currentHp = d.maxHp;
+			withBonus.currentLuck = d.maxLuck;
+			console.log('[finish] saving character', withBonus.id, withBonus.name);
+			await characters.upsert(withBonus);
+			console.log('[finish] saved, navigating');
+			await goto(`/character/${withBonus.id}`);
+		} catch (err) {
+			console.error('[finish] FAILED', err);
+			throw err;
+		}
 	}
 
 	const stepLabels: Record<Step, string> = {

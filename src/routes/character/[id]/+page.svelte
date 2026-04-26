@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { characters } from '$lib/store';
+	import { characters } from '$lib/store.svelte';
 	import { ORIGIN_BY_KEY } from '$lib/fallout/origins';
 	import { PERKS_BY_KEY } from '$lib/fallout/perks';
 	import { applyOriginToBase, isTagSkill } from '$lib/fallout/factory';
@@ -26,7 +26,7 @@
 		if (!id) return;
 		void characters.state.items;
 		const c = characters.get(id);
-		if (c) character = structuredClone(c);
+		if (c) character = JSON.parse(JSON.stringify(c));
 	});
 
 	onMount(async () => {
@@ -34,7 +34,7 @@
 		if (!id) return;
 		await characters.refresh();
 		const c = characters.get(id);
-		if (c) character = structuredClone(c);
+		if (c) character = JSON.parse(JSON.stringify(c));
 	});
 
 	let origin = $derived(character ? ORIGIN_BY_KEY[character.originKey] : null);
