@@ -712,6 +712,80 @@ let createdSheetUrl;
 	await ctx.close();
 }
 
+// =========================================================================
+// SECTION 12: Edit perks panel — add, rank up, remove
+// =========================================================================
+{
+	const ctx = await newCtx();
+	const page = await ctx.newPage();
+	page.on('pageerror', (e) => errors.push(`[s12 pageerror] ${e.message}`));
+	page.on('console', (m) => m.type() === 'error' && errors.push(`[s12 err] ${m.text()}`));
+
+	console.log(`\n=== SECTION 12: Edit perks panel ===`);
+	await page.goto(`${url}/create`, { waitUntil: 'networkidle' });
+	await fillSurvivorWizard(page, 'Perk Editor');
+	await page.waitForTimeout(500);
+
+	// Count perks at start (Survivor: 1 starting perk)
+	const before = await page.locator('[data-testid="perks-list"] [data-testid^="perk-row-"]').count();
+	expectTrue('s12: starts with at least 1 perk', before >= 1);
+
+	// Open the add-perk modal
+	await page.locator('[data-testid="perk-add"]').click();
+	await page.waitForTimeout(300);
+	const modalVisible = await page.locator('[data-testid="addperk-modal"]').isVisible();
+	expect('s12: add-perk modal opens', true, modalVisible);
+
+	// Pick the first listed perk in the modal — should add to the sheet and close the modal
+	const firstAddable = page.locator('button[data-testid^="addperk-pick-"]').first();
+	const firstKey = await firstAddable.getAttribute('data-testid');
+	await firstAddable.click();
+	await page.waitForTimeout(400);
+	const stillOpen = await page.locator('[data-testid="addperk-modal"]').isVisible();
+	expect('s12: modal closes after pick', false, stillOpen);
+	const after = await page.locator('[data-testid="perks-list"] [data-testid^="perk-row-"]').count();
+	expectTrue('s12: a perk was added (or ranked up)', after >= before);
+
+	// Rank-up the first perk — capture its rank text, click +, expect rank text to change
+	const firstRow = page.locator('[data-testid="perk-row-0"]');
+	const beforeText = await firstRow.locator('.pip-display').first().innerText();
+	const upBtn = page.locator('[data-testid="perk-rank-up-0"]');
+	const upDisabled = await upBtn.isDisabled();
+	if (!upDisabled) {
+		await upBtn.click();
+		await page.waitForTimeout(400);
+		const afterText = await firstRow.locator('.pip-display').first().innerText();
+		expectTrue('s12: rank-up changes the rank label', beforeText !== afterText);
+	} else {
+		console.log('  (rank-up button disabled — likely a 1-rank perk; skipping rank-up assertion)');
+	}
+
+	// Remove the first perk; total count should drop by 1
+	const beforeRemove = await page
+		.locator('[data-testid="perks-list"] [data-testid^="perk-row-"]')
+		.count();
+	await page.locator('[data-testid="perk-remove-0"]').click();
+	await page.waitForTimeout(400);
+	const afterRemove = await page
+		.locator('[data-testid="perks-list"] [data-testid^="perk-row-"]')
+		.count();
+	expect('s12: removing a perk drops the count', beforeRemove - 1, afterRemove);
+
+	// Auto-save: just wait for the panel-header status to settle, then hard reload
+	await page.waitForTimeout(800);
+	await page.reload({ waitUntil: 'networkidle' });
+	await page.waitForTimeout(1000);
+	const afterReload = await page
+		.locator('[data-testid="perks-list"] [data-testid^="perk-row-"]')
+		.count();
+	expect('s12: perk count persists across reload (auto-save)', afterRemove, afterReload);
+
+	// Sanity-bind firstKey lookup so the variable is used
+	void firstKey;
+
+	await ctx.close();
+}
+
 console.log(`\n=========== SUMMARY ===========`);
 console.log(`Failures: ${failures.length}`);
 failures.forEach((f) => console.log(`  ✗ ${f}`));

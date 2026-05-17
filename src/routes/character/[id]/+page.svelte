@@ -13,7 +13,13 @@
 		ROBOT_PLATING_PRESETS,
 		findPlatingDef
 	} from '$lib/fallout/origins';
-	import { PERKS, PERKS_BY_KEY, type PerkDef } from '$lib/fallout/perks';
+	import {
+		CATEGORY_LABELS,
+		PERKS,
+		PERKS_BY_KEY,
+		type PerkCategory,
+		type PerkDef
+	} from '$lib/fallout/perks';
 	import { applyOriginToBase, isSkillBlockedByOrigin, isTagSkill } from '$lib/fallout/factory';
 	import {
 		aggregateDR,
@@ -62,6 +68,11 @@
 	let levelUpOpen = $state(false);
 	let levelUpSkill = $state<SkillKey | ''>('');
 	let levelUpPerkKey = $state<string>('');
+
+	// Add-perk modal state (for editing the Perks panel outside of level-up)
+	let addPerkOpen = $state(false);
+	let addPerkFilter = $state<'all' | PerkCategory>('all');
+	let addPerkShowUnavailable = $state(true);
 
 	$effect(() => {
 		const id = page.params.id;
@@ -303,6 +314,82 @@
 		if (!character) return;
 		character.robotMods = (character.robotMods ?? []).filter((m) => m.id !== id);
 	}
+
+	// Perk editing (sheet-level, outside the level-up wizard).
+	// Players sometimes need to correct a creation mistake, re-spec at the GM's
+	// discretion, or fold in homebrew. We let them add/remove/re-rank freely and
+	// only warn when requirements aren't currently met.
+	function addPerk(key: string) {
+		if (!character) return;
+		const def = PERKS_BY_KEY[key];
+		if (!def) return;
+		const existing = character.perks.find((p) => p.key === key);
+		if (existing) {
+			// Already taken — rank up if under cap, else no-op
+			if (existing.rank < def.ranks) {
+				existing.rank += 1;
+				character.perks = [...character.perks];
+			}
+		} else {
+			character.perks = [...character.perks, { key, rank: 1 }];
+		}
+	}
+
+	function removePerk(key: string) {
+		if (!character) return;
+		character.perks = character.perks.filter((p) => p.key !== key);
+	}
+
+	function bumpPerkRank(key: string, dir: 1 | -1) {
+		if (!character) return;
+		const def = PERKS_BY_KEY[key];
+		const idx = character.perks.findIndex((p) => p.key === key);
+		if (idx < 0) return;
+		const cur = character.perks[idx];
+		const next = cur.rank + dir;
+		if (next < 1) {
+			// Going below 1 removes the perk entirely
+			removePerk(key);
+			return;
+		}
+		if (def && next > def.ranks) return;
+		cur.rank = next;
+		character.perks = [...character.perks];
+	}
+
+	// Reuse the level-up requirement check, but use the *current* level so the
+	// add-perk modal mirrors the rulebook semantics for a perk taken right now.
+	function perkUnmetForAdd(p: PerkDef): string | null {
+		if (!character) return 'no character';
+		return perkUnmet(p, character.level);
+	}
+
+	const PERK_CATEGORIES_LIST: PerkCategory[] = [
+		'combat',
+		'defense',
+		'tactical',
+		'crit',
+		'stealth',
+		'crafting',
+		'social',
+		'utility',
+		'survival'
+	];
+
+	let addPerkVisible = $derived(
+		character
+			? PERKS.filter((p) => {
+					if (addPerkFilter !== 'all' && p.category !== addPerkFilter) return false;
+					if (!addPerkShowUnavailable && perkUnmetForAdd(p) !== null) return false;
+					return true;
+				}).sort((a, b) => {
+					const aOk = perkUnmetForAdd(a) === null ? 0 : 1;
+					const bOk = perkUnmetForAdd(b) === null ? 0 : 1;
+					if (aOk !== bOk) return aOk - bOk;
+					return a.name.localeCompare(b.name);
+				})
+			: []
+	);
 
 	function clamp(n: number, lo: number, hi: number): number {
 		return Math.max(lo, Math.min(hi, n));
@@ -980,10 +1067,17 @@
 
 		<!-- Perks & traits -->
 		<section class="pip-panel">
-			<div class="pip-panel-header">PERKS &amp; TRAITS</div>
+			<div class="pip-panel-header flex items-center justify-between">
+				<span>PERKS &amp; TRAITS</span>
+				<button
+					class="text-xs underline no-print"
+					data-testid="perk-add"
+					onclick={() => (addPerkOpen = true)}>[ + add perk ]</button
+				>
+			</div>
 			<div class="space-y-2 p-4 sm:p-6">
 				{#if character.traits.length === 0 && character.perks.length === 0}
-					<p class="text-sm opacity-70">[ none yet ]</p>
+					<p class="text-sm opacity-70">[ none yet — use the level-up wizard or [ + add perk ] ]</p>
 				{/if}
 				{#if character.traits.length}
 					<div>
@@ -998,14 +1092,46 @@
 				{#if character.perks.length}
 					<div>
 						<div class="text-xs opacity-70">PERKS</div>
-						<ul class="space-y-1 text-sm">
-							{#each character.perks as p (p.key)}
+						<ul class="space-y-1 text-sm" data-testid="perks-list">
+							{#each character.perks as p, i (p.key)}
 								{@const def = PERKS_BY_KEY[p.key]}
-								<li class="border border-[var(--color-pip-green-dim)] p-2">
-									<div class="pip-display pip-glow text-base">
-										{def?.name ?? p.key} <span class="opacity-60">(rank {p.rank})</span>
+								{@const maxRank = def?.ranks ?? 1}
+								<li
+									class="border border-[var(--color-pip-green-dim)] p-2"
+									data-testid={`perk-row-${i}`}
+								>
+									<div class="flex flex-wrap items-baseline justify-between gap-2">
+										<div class="pip-display pip-glow text-base">
+											{def?.name ?? p.key}
+											<span class="opacity-60">(rank {p.rank}/{maxRank})</span>
+										</div>
+										<div class="flex items-center gap-1 no-print">
+											<button
+												class="pip-btn px-2 py-0 text-xs"
+												data-testid={`perk-rank-down-${i}`}
+												disabled={p.rank <= 1}
+												onclick={() => bumpPerkRank(p.key, -1)}
+												title="Decrease rank">−</button
+											>
+											<button
+												class="pip-btn px-2 py-0 text-xs"
+												data-testid={`perk-rank-up-${i}`}
+												disabled={p.rank >= maxRank}
+												onclick={() => bumpPerkRank(p.key, 1)}
+												title="Increase rank">+</button
+											>
+											<button
+												class="pip-btn pip-btn-danger px-2 py-0 text-xs"
+												data-testid={`perk-remove-${i}`}
+												onclick={() => removePerk(p.key)}
+												title="Remove perk">X</button
+											>
+										</div>
 									</div>
-									<div class="text-xs opacity-80">{def?.text ?? ''}</div>
+									<div class="mt-1 text-xs opacity-80">{def?.text ?? ''}</div>
+									{#if def?.flavor}
+										<div class="text-[0.7rem] opacity-60">→ {def.flavor}</div>
+									{/if}
 								</li>
 							{/each}
 						</ul>
@@ -1487,6 +1613,111 @@
 						>
 							[ ✓ ] Confirm Level Up
 						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Add-perk modal (sheet-level edit, not level-up) -->
+	{#if addPerkOpen}
+		<div
+			class="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto bg-black/80 p-4 no-print"
+			data-testid="addperk-modal"
+		>
+			<div class="pip-panel my-8 w-full max-w-2xl">
+				<div class="pip-panel-header flex items-center justify-between">
+					<span>ADD PERK (sheet edit)</span>
+					<button
+						class="text-xs underline"
+						data-testid="addperk-close"
+						onclick={() => (addPerkOpen = false)}>[ × close ]</button
+					>
+				</div>
+				<div class="space-y-3 p-4 sm:p-6">
+					<div class="text-xs opacity-80">
+						Pick a perk to add or rank up. Requirements are checked against your <em
+							>current</em
+						>
+						level; unmet perks are dimmed but still selectable (so you can correct mistakes or
+						handle homebrew). For book-legal advancement, use the
+						<span class="pip-glow">[ ↑ LEVEL UP ]</span> wizard instead.
+					</div>
+
+					<div class="flex flex-wrap items-center gap-2 text-xs">
+						<span class="opacity-70">FILTER:</span>
+						<button
+							class="pip-btn px-2 py-0 text-xs {addPerkFilter === 'all'
+								? 'bg-[var(--color-pip-green-dim)] text-[#001500]'
+								: ''}"
+							onclick={() => (addPerkFilter = 'all')}>All</button
+						>
+						{#each PERK_CATEGORIES_LIST as cat (cat)}
+							<button
+								class="pip-btn px-2 py-0 text-xs {addPerkFilter === cat
+									? 'bg-[var(--color-pip-green-dim)] text-[#001500]'
+									: ''}"
+								onclick={() => (addPerkFilter = cat)}
+								>{CATEGORY_LABELS[cat].split(' — ')[0]}</button
+							>
+						{/each}
+						<label class="ml-auto flex items-center gap-1">
+							<input type="checkbox" bind:checked={addPerkShowUnavailable} />
+							<span>Show unavailable</span>
+						</label>
+					</div>
+
+					<div
+						class="max-h-[60vh] space-y-1 overflow-y-auto border border-[var(--color-pip-green-dim)] p-1"
+					>
+						{#each addPerkVisible as p (p.key)}
+							{@const reason = perkUnmetForAdd(p)}
+							{@const already = character.perks.find((pp) => pp.key === p.key)}
+							{@const maxedOut = Boolean(already && p.ranks && already.rank >= p.ranks)}
+							<button
+								type="button"
+								data-testid={`addperk-pick-${p.key}`}
+								disabled={maxedOut}
+								class="block w-full border-b border-[var(--color-pip-green-dim)] p-2 text-left text-xs transition {maxedOut
+									? 'opacity-40'
+									: reason
+										? 'opacity-70 hover:bg-[rgba(255,176,0,0.05)]'
+										: 'hover:bg-[rgba(21,255,96,0.05)]'}"
+								onclick={() => {
+									addPerk(p.key);
+									addPerkOpen = false;
+								}}
+							>
+								<div class="flex flex-wrap items-baseline justify-between gap-2">
+									<div class="pip-display pip-glow text-base">
+										{p.name}
+										<span class="opacity-60">
+											({p.ranks} rank{p.ranks > 1 ? 's' : ''})
+										</span>
+										{#if already}
+											<span class="pip-glow-amber text-xs">
+												[have rank {already.rank}{maxedOut ? ' — maxed' : ' — clicking ranks up'}]
+											</span>
+										{/if}
+									</div>
+									<div class="text-xs">
+										{#if reason && !maxedOut}
+											<span class="pip-glow-amber">⚠ {reason} (still selectable)</span>
+										{:else if !reason}
+											<span class="opacity-60"
+												>{CATEGORY_LABELS[p.category].split(' — ')[0]}</span
+											>
+										{/if}
+									</div>
+								</div>
+								<div class="mt-1 opacity-80">{p.text}</div>
+								{#if p.flavor}
+									<div class="mt-1 text-[0.7rem] opacity-60">→ {p.flavor}</div>
+								{/if}
+							</button>
+						{:else}
+							<p class="p-2 opacity-70 text-xs">[ no perks match this filter ]</p>
+						{/each}
 					</div>
 				</div>
 			</div>
