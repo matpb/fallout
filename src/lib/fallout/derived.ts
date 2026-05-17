@@ -1,6 +1,6 @@
 import type { BodyLocation, Character, DamageType, SpecialKey } from './types';
 import { BODY_LOCATIONS } from './types';
-import { ORIGIN_BY_KEY } from './origins';
+import { ORIGIN_BY_KEY, findPlatingDef } from './origins';
 
 export interface DerivedStats {
 	carryWeight: number;
@@ -120,5 +120,38 @@ export function armorMatrix(c: Character): ArmorMatrix {
 		row.radiation += piece.dr.radiation || 0;
 		row.poison += piece.dr.poison || 0;
 	}
+	// Mr Handy plating covers the whole body — add its PHY/ENR DR to every location.
+	if (c.originKey === 'misterHandy') {
+		const plating = findPlatingDef(c.misterHandyPlating);
+		if (plating) {
+			for (const loc of BODY_LOCATIONS) {
+				out[loc].physical += plating.dr.physical;
+				out[loc].energy += plating.dr.energy;
+			}
+		}
+	}
 	return out;
+}
+
+// Aggregate DR across all locations — the "averaged" view for derived stats.
+// Returns the average DR across the 6 hit locations per damage type, rounded
+// down. Useful as an at-a-glance summary; the per-location matrix in the
+// Armor section is still the source of truth at the table.
+export function aggregateDR(c: Character): Record<DamageType, number> {
+	const matrix = armorMatrix(c);
+	const totals: Record<DamageType, number> = { physical: 0, energy: 0, radiation: 0, poison: 0 };
+	for (const loc of BODY_LOCATIONS) {
+		const row = matrix[loc];
+		totals.physical += row.physical;
+		totals.energy += row.energy;
+		totals.radiation += row.radiation;
+		totals.poison += row.poison;
+	}
+	const n = BODY_LOCATIONS.length;
+	return {
+		physical: Math.floor(totals.physical / n),
+		energy: Math.floor(totals.energy / n),
+		radiation: Math.floor(totals.radiation / n),
+		poison: Math.floor(totals.poison / n)
+	};
 }

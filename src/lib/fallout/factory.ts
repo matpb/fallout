@@ -21,6 +21,7 @@ export function createBlankCharacter(originKey: OriginKey = 'survivor'): Charact
 		level: 1,
 		xp: 0,
 		special: baseSpecial,
+		createdSpecial: { ...baseSpecial },
 		tagSkills: [],
 		skills: emptySkills(),
 		perks: [],

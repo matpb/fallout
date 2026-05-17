@@ -27,6 +27,9 @@ function normalizeCharacter(c: Character): Character {
 	c.schemaVersion = 2;
 	if (!Array.isArray(c.weapons)) c.weapons = [];
 	if (!Array.isArray(c.armor)) c.armor = [];
+	// Old characters predate the createdSpecial snapshot — seed from current values
+	// so "(started N)" hints don't pop up for never-edited stats.
+	if (!c.createdSpecial) c.createdSpecial = { ...c.special };
 	// Mister Handy: backfill default loadout if origin is misterHandy but fields are missing
 	if (c.originKey === 'misterHandy') {
 		if (!c.misterHandyVariant) c.misterHandyVariant = 'misterHandy';

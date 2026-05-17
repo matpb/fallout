@@ -15,7 +15,13 @@
 	} from '$lib/fallout/origins';
 	import { PERKS, PERKS_BY_KEY, type PerkDef } from '$lib/fallout/perks';
 	import { applyOriginToBase, isSkillBlockedByOrigin, isTagSkill } from '$lib/fallout/factory';
-	import { armorMatrix, deriveAll, inventoryWeight, specialMaxFor } from '$lib/fallout/derived';
+	import {
+		aggregateDR,
+		armorMatrix,
+		deriveAll,
+		inventoryWeight,
+		specialMaxFor
+	} from '$lib/fallout/derived';
 	import { canLevelUp, xpForLevel, xpToNextLevel } from '$lib/fallout/levelUp';
 	import {
 		ARM_ATTACHMENT_META,
@@ -39,7 +45,18 @@
 
 	let character = $state<Character | null>(null);
 	let editingName = $state(false);
-	let saving = $state(false);
+
+	// Auto-save plumbing. Once a character is loaded for `loadedId`, the local
+	// `character` state becomes authoritative — subsequent store refreshes won't
+	// clobber in-progress edits. `lastSavedFingerprint` tracks what's persisted
+	// so we only write when something actually changed.
+	let loadedId = $state<string | null>(null);
+	let lastSavedFingerprint = $state<string | null>(null);
+	let saveStatus = $state<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
+	let saveError = $state<string | null>(null);
+	let saveTimer: ReturnType<typeof setTimeout> | null = null;
+	let savedFadeTimer: ReturnType<typeof setTimeout> | null = null;
+	const AUTOSAVE_DEBOUNCE_MS = 400;
 
 	// Level-up wizard state
 	let levelUpOpen = $state(false);
@@ -50,23 +67,85 @@
 		const id = page.params.id;
 		if (!id) return;
 		void characters.state.items;
+		if (loadedId === id) return; // already loaded — local state is authoritative
 		const c = characters.get(id);
-		if (c) character = JSON.parse(JSON.stringify(c));
+		if (!c) return;
+		character = JSON.parse(JSON.stringify(c));
+		loadedId = id;
+		lastSavedFingerprint = JSON.stringify(character);
+		saveStatus = 'idle';
 	});
 
 	onMount(async () => {
 		const id = page.params.id;
 		if (!id) return;
 		await characters.refresh();
+		if (loadedId === id) return;
 		const c = characters.get(id);
-		if (c) character = JSON.parse(JSON.stringify(c));
+		if (!c) return;
+		character = JSON.parse(JSON.stringify(c));
+		loadedId = id;
+		lastSavedFingerprint = JSON.stringify(character);
+		saveStatus = 'idle';
 	});
+
+	// Auto-save effect: any time character changes, debounce a write.
+	$effect(() => {
+		if (!character) return;
+		const fp = JSON.stringify(character);
+		if (lastSavedFingerprint === null || fp === lastSavedFingerprint) return;
+		if (saveTimer) clearTimeout(saveTimer);
+		saveStatus = 'pending';
+		saveTimer = setTimeout(() => void flushSave(), AUTOSAVE_DEBOUNCE_MS);
+	});
+
+	async function flushSave() {
+		if (!character) return;
+		const snapshot = JSON.stringify(character);
+		if (snapshot === lastSavedFingerprint) {
+			saveStatus = 'idle';
+			return;
+		}
+		saveStatus = 'saving';
+		saveError = null;
+		try {
+			await characters.upsertSilent(character);
+			lastSavedFingerprint = snapshot;
+			saveStatus = 'saved';
+			if (savedFadeTimer) clearTimeout(savedFadeTimer);
+			savedFadeTimer = setTimeout(() => {
+				if (saveStatus === 'saved') saveStatus = 'idle';
+			}, 1800);
+		} catch (err) {
+			console.error('autosave failed', err);
+			saveError = err instanceof Error ? err.message : String(err);
+			saveStatus = 'error';
+		}
+	}
+
+	// Manual save button — useful as a "force flush" + reassurance gesture.
+	async function save() {
+		if (saveTimer) clearTimeout(saveTimer);
+		await flushSave();
+	}
 
 	let origin = $derived(character ? ORIGIN_BY_KEY[character.originKey] : null);
 	let derived_ = $derived(character ? deriveAll(applyOriginToBase(character)) : null);
 	let invWeight = $derived(character ? inventoryWeight(character) : 0);
 	let invOver = $derived(derived_ && invWeight > derived_.carryWeight);
 	let armorByLocation = $derived(character ? armorMatrix(character) : null);
+	let aggregateDr = $derived(character ? aggregateDR(character) : null);
+	let favoriteWeapon = $derived.by(() => {
+		const c = character;
+		if (!c || !c.favoriteWeaponId) return null;
+		return c.weapons.find((w) => w.id === c.favoriteWeaponId) ?? null;
+	});
+	let favoriteWeaponTn = $derived.by(() => {
+		if (!character || !favoriteWeapon) return null;
+		const final = applyOriginToBase(character).special;
+		const attr = SKILL_DEFAULT_ATTR[favoriteWeapon.skill];
+		return final[attr] + character.skills[favoriteWeapon.skill];
+	});
 	let handyVariantDef = $derived(
 		character?.misterHandyVariant
 			? MISTER_HANDY_VARIANT_BY_KEY[character.misterHandyVariant]
@@ -115,16 +194,6 @@
 			: []
 	);
 
-	async function save() {
-		if (!character) return;
-		saving = true;
-		try {
-			await characters.upsert(character);
-		} finally {
-			saving = false;
-		}
-	}
-
 	async function remove() {
 		if (!character) return;
 		if (!confirm(`Delete "${character.name}" forever? This cannot be undone.`)) return;
@@ -169,6 +238,12 @@
 	function removeWeapon(id: string) {
 		if (!character) return;
 		character.weapons = character.weapons.filter((w) => w.id !== id);
+		if (character.favoriteWeaponId === id) character.favoriteWeaponId = undefined;
+	}
+
+	function toggleFavoriteWeapon(id: string) {
+		if (!character) return;
+		character.favoriteWeaponId = character.favoriteWeaponId === id ? undefined : id;
 	}
 
 	function addArmor() {
@@ -286,11 +361,19 @@
 	<div class="space-y-4">
 		<!-- Header card -->
 		<section class="pip-panel">
-			<div class="pip-panel-header flex items-center justify-between">
+			<div class="pip-panel-header flex items-center justify-between gap-2">
 				<span>STAT &gt; {character.name}</span>
-				<span class="text-xs opacity-80"
-					>LVL {character.level} · XP {character.xp}</span
-				>
+				<span class="flex items-center gap-3 text-xs opacity-80">
+					<span data-testid="save-status">
+						{#if saveStatus === 'saving'}saving…
+						{:else if saveStatus === 'pending'}⏳ pending
+						{:else if saveStatus === 'saved'}✓ saved
+						{:else if saveStatus === 'error'}⚠ save failed
+						{:else}✓ auto-saved
+						{/if}
+					</span>
+					<span>LVL {character.level} · XP {character.xp}</span>
+				</span>
 			</div>
 			<div class="space-y-3 p-4 sm:p-6">
 				<div class="flex flex-wrap items-center justify-between gap-2">
@@ -411,6 +494,8 @@
 					{@const finalVal = applyOriginToBase(character).special[k]}
 					{@const bonus = finalVal - baseVal}
 					{@const cap = specialMaxFor(character, k)}
+					{@const startVal = character.createdSpecial?.[k]}
+					{@const drift = startVal !== undefined ? finalVal - startVal : 0}
 					<div>
 						<div class="text-xs opacity-70">{SPECIAL_LABELS[k].short}</div>
 						<input
@@ -434,6 +519,11 @@
 						{:else}
 							<div class="text-[0.6rem] opacity-50">max {cap}</div>
 						{/if}
+						{#if startVal !== undefined && drift !== 0}
+							<div class="text-[0.6rem] opacity-60" title="Value at character creation">
+								started {startVal}
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -442,39 +532,131 @@
 		<!-- Derived -->
 		<section class="pip-panel">
 			<div class="pip-panel-header">DERIVED STATISTICS</div>
-			<div class="grid grid-cols-2 gap-3 p-4 text-sm sm:grid-cols-3 sm:p-6">
-				<div>
-					<div class="text-xs opacity-70">DEFENSE</div>
-					<div class="pip-display pip-glow text-2xl">{derived_.defense}</div>
-				</div>
-				<div>
-					<div class="text-xs opacity-70">INITIATIVE</div>
-					<div class="pip-display pip-glow text-2xl">{derived_.initiative}</div>
-				</div>
-				<div>
-					<div class="text-xs opacity-70">MELEE BONUS</div>
-					<div class="pip-display pip-glow text-2xl">+{derived_.meleeBonusCD} CD</div>
-				</div>
-				<div>
-					<div class="text-xs opacity-70">CARRY</div>
-					<div class="pip-display text-2xl {invOver ? 'pip-glow-amber' : 'pip-glow'}">
-						{invWeight} / {derived_.carryWeight} lbs
+			<div class="space-y-3 p-4 sm:p-6">
+				<div class="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+					<div>
+						<div class="text-xs opacity-70">DEFENSE</div>
+						<div class="pip-display pip-glow text-2xl">{derived_.defense}</div>
+					</div>
+					<div>
+						<div class="text-xs opacity-70">INITIATIVE</div>
+						<div class="pip-display pip-glow text-2xl">{derived_.initiative}</div>
+					</div>
+					<div>
+						<div class="text-xs opacity-70">MELEE BONUS</div>
+						<div class="pip-display pip-glow text-2xl">+{derived_.meleeBonusCD} CD</div>
+					</div>
+					<div>
+						<div class="text-xs opacity-70">CARRY</div>
+						<div class="pip-display text-2xl {invOver ? 'pip-glow-amber' : 'pip-glow'}">
+							{invWeight} / {derived_.carryWeight} lbs
+						</div>
+					</div>
+					<div>
+						<div class="text-xs opacity-70">CAPS</div>
+						<input
+							class="pip-input pip-display pip-glow text-xl"
+							data-testid="caps-input"
+							type="number"
+							min="0"
+							bind:value={character.caps}
+						/>
 					</div>
 				</div>
-				<div>
-					<div class="text-xs opacity-70">CAPS</div>
-					<input
-						class="pip-input pip-display !pip-glow !text-2xl"
-						data-testid="caps-input"
-						type="number"
-						min="0"
-						bind:value={character.caps}
-					/>
-				</div>
-				<div>
-					<div class="text-xs opacity-70">TRINKET</div>
-					<input class="pip-input" data-testid="trinket-input" bind:value={character.trinket} />
-				</div>
+
+				<!-- Avg DR summary (with plating) -->
+				{#if aggregateDr}
+					<div class="border-t border-[var(--color-pip-green-dim)] pt-3">
+						<div class="text-xs opacity-70">
+							AVG DR (across 6 locations, equipped armor + plating)
+						</div>
+						<div class="mt-1 grid grid-cols-4 gap-2 text-center text-sm" data-testid="dr-summary">
+							<div>
+								<div class="text-xs opacity-70">PHYS</div>
+								<div class="pip-display {aggregateDr.physical > 0 ? 'pip-glow' : 'opacity-40'} text-2xl">
+									{aggregateDr.physical}
+								</div>
+							</div>
+							<div>
+								<div class="text-xs opacity-70">ENRG</div>
+								<div class="pip-display {aggregateDr.energy > 0 ? 'pip-glow' : 'opacity-40'} text-2xl">
+									{aggregateDr.energy}
+								</div>
+							</div>
+							<div>
+								<div class="text-xs opacity-70">RAD</div>
+								<div class="pip-display {aggregateDr.radiation > 0 ? 'pip-glow' : 'opacity-40'} text-2xl">
+									{aggregateDr.radiation}
+								</div>
+							</div>
+							<div>
+								<div class="text-xs opacity-70">PSN</div>
+								<div class="pip-display {aggregateDr.poison > 0 ? 'pip-glow' : 'opacity-40'} text-2xl">
+									{aggregateDr.poison}
+								</div>
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				<!-- Favorite weapon stat block -->
+				{#if favoriteWeapon}
+					{@const meta = favoriteWeapon}
+					<div
+						class="border-t border-[var(--color-pip-green-dim)] pt-3"
+						data-testid="favorite-weapon"
+					>
+						<div class="flex flex-wrap items-baseline justify-between gap-2">
+							<div class="text-xs opacity-70">
+								FAVORITE WEAPON
+							</div>
+							<div class="text-[0.7rem] opacity-60">
+								(toggle with ★ on a weapon row below)
+							</div>
+						</div>
+						<div class="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-3">
+							<div>
+								<div class="pip-display pip-glow text-xl">{meta.name || '[ unnamed ]'}</div>
+								<div class="text-xs opacity-80">
+									{SKILL_LABELS[meta.skill]} —
+									<span class="pip-glow">TN {favoriteWeaponTn}</span>
+								</div>
+							</div>
+							<div class="text-sm">
+								<div>
+									<span class="opacity-60">Damage:</span>
+									<span class="pip-glow">{meta.damageCD} CD {meta.damageType}</span>
+								</div>
+								{#if meta.damageEffects}
+									<div>
+										<span class="opacity-60">Effects:</span>
+										<span class="pip-glow">{meta.damageEffects}</span>
+									</div>
+								{/if}
+							</div>
+							<div class="text-sm">
+								{#if meta.range}
+									<div>
+										<span class="opacity-60">Range:</span>
+										<span class="pip-glow">{meta.range}</span>
+									</div>
+								{/if}
+								{#if meta.fireRate}
+									<div>
+										<span class="opacity-60">Fire Rate:</span>
+										<span class="pip-glow">{meta.fireRate}</span>
+									</div>
+								{/if}
+								{#if meta.ammo}
+									<div>
+										<span class="opacity-60">Ammo:</span>
+										<span class="pip-glow">{meta.ammo} ({meta.ammoQty})</span>
+									</div>
+								{/if}
+							</div>
+						</div>
+					</div>
+				{/if}
 			</div>
 		</section>
 
@@ -957,11 +1139,25 @@
 								Rolls <span class="pip-glow">{SPECIAL_LABELS[skillAttr].short} + {SKILL_LABELS[w.skill]}</span>
 								— TN <span class="pip-glow">{weaponTn}</span>, damage <span class="pip-glow">{w.damageCD} CD {w.damageType}</span>
 							</div>
-							<button
-								class="pip-btn pip-btn-danger px-2 py-0 text-center no-print"
-								data-testid={`weapon-remove-${i}`}
-								onclick={() => removeWeapon(w.id)}>X</button
-							>
+							<div class="flex items-center gap-1 no-print">
+								<button
+									type="button"
+									class="pip-btn px-2 py-0 text-center"
+									class:pip-glow-amber={character.favoriteWeaponId === w.id}
+									data-testid={`weapon-fav-${i}`}
+									onclick={() => toggleFavoriteWeapon(w.id)}
+									title={character.favoriteWeaponId === w.id
+										? 'Favorite — click to unset'
+										: 'Mark as favorite (pinned at top)'}
+								>
+									{character.favoriteWeaponId === w.id ? '★' : '☆'}
+								</button>
+								<button
+									class="pip-btn pip-btn-danger px-2 py-0 text-center"
+									data-testid={`weapon-remove-${i}`}
+									onclick={() => removeWeapon(w.id)}>X</button
+								>
+							</div>
 						</div>
 					</div>
 				{/each}
@@ -1145,19 +1341,57 @@
 			</div>
 		</section>
 
-		<!-- Notes -->
+		<!-- Trinket + Notes -->
 		<section class="pip-panel">
-			<div class="pip-panel-header">NOTES</div>
-			<div class="p-4 sm:p-6">
-				<textarea class="pip-textarea min-h-[10rem]" data-testid="notes-input" bind:value={character.notes}></textarea>
+			<div class="pip-panel-header">PERSONAL TRINKET &amp; NOTES</div>
+			<div class="space-y-3 p-4 sm:p-6">
+				<label class="block text-xs">
+					<span class="opacity-70"
+						>TRINKET — once per quest, gaze at it to regain 1 Luck Point (p.79)</span
+					>
+					<input
+						class="pip-input mt-1"
+						data-testid="trinket-input"
+						bind:value={character.trinket}
+						placeholder="e.g. A pre-war gold pocket watch"
+					/>
+				</label>
+				<label class="block text-xs">
+					<span class="opacity-70">NOTES</span>
+					<textarea
+						class="pip-textarea mt-1 min-h-[10rem]"
+						data-testid="notes-input"
+						bind:value={character.notes}
+					></textarea>
+				</label>
 			</div>
 		</section>
 
 		<!-- Actions -->
-		<div class="flex flex-wrap gap-2 no-print">
-			<button class="pip-btn pip-glow-amber" data-testid="save-btn" disabled={saving} onclick={save}>
-				{saving ? '[ saving… ]' : '[ ✓ ] Save changes'}
+		<div class="flex flex-wrap items-center gap-2 no-print">
+			<button
+				class="pip-btn"
+				class:pip-glow-amber={saveStatus === 'saving' || saveStatus === 'pending'}
+				data-testid="save-btn"
+				disabled={saveStatus === 'saving'}
+				onclick={save}
+				title="Edits auto-save ~400ms after you blur a field. Click to flush immediately."
+			>
+				{#if saveStatus === 'saving'}
+					[ saving… ]
+				{:else if saveStatus === 'pending'}
+					[ ⏳ pending… ]
+				{:else if saveStatus === 'saved'}
+					[ ✓ saved ]
+				{:else if saveStatus === 'error'}
+					[ ⚠ save failed — retry ]
+				{:else}
+					[ ✓ saved · auto ]
+				{/if}
 			</button>
+			{#if saveStatus === 'error' && saveError}
+				<span class="pip-glow-amber text-xs">{saveError}</span>
+			{/if}
 			<button class="pip-btn" onclick={() => window.print()}>[ ⎙ ] Print sheet</button>
 			<a class="pip-btn" href="/">‹ Back to roster</a>
 			<button class="pip-btn pip-btn-danger ml-auto" data-testid="delete-btn" onclick={remove}>[ X ] Delete</button>

@@ -142,6 +142,9 @@ export interface Character {
 
 	// SPECIAL — base values (4-10 typical, super mutant up to 12 STR/END)
 	special: Special;
+	// Snapshot of `special` at character-creation time. Surfaced on the sheet as
+	// "(started N)" hints if the live value drifts. Not used by any rules logic.
+	createdSpecial?: Special;
 
 	// Skills 0-6 + tag skills (3-4)
 	tagSkills: SkillKey[];
@@ -161,6 +164,8 @@ export interface Character {
 	weapons: WeaponItem[];
 	armor: ArmorPiece[];
 	trinket: string;
+	// Optional pinned weapon — its profile shows at the top of the sheet.
+	favoriteWeaponId?: string;
 
 	// HP
 	currentHp: number;

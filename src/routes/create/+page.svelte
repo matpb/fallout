@@ -242,6 +242,9 @@
 			const d = deriveAll(withBonus);
 			withBonus.currentHp = d.maxHp;
 			withBonus.currentLuck = d.maxLuck;
+			// Lock the post-bonus SPECIAL as the "starting" snapshot. Future edits on
+			// the sheet show "(started N)" hints relative to this baseline.
+			withBonus.createdSpecial = { ...withBonus.special };
 			console.log('[finish] saving character', withBonus.id, withBonus.name);
 			await characters.upsert(withBonus);
 			console.log('[finish] saved, navigating');

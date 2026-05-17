@@ -33,6 +33,23 @@ class CharactersStore {
 		await this.refresh();
 	}
 
+	// Persist without triggering a refresh — used by the character sheet's
+	// auto-save so a debounced write doesn't clobber in-flight edits when the
+	// load effect re-runs. The roster picks up the change on its own refresh.
+	async upsertSilent(c: Character) {
+		const plain = JSON.parse(JSON.stringify(c)) as Character;
+		await dbSave(plain);
+		// Best-effort: patch the in-memory list so the roster reflects the latest
+		// title/level without a round-trip. If the row is missing we just append.
+		const idx = this.state.items.findIndex((x) => x.id === plain.id);
+		if (idx >= 0) {
+			this.state.items[idx] = plain;
+			this.state.items = [...this.state.items];
+		} else {
+			this.state.items = [plain, ...this.state.items];
+		}
+	}
+
 	async remove(id: string) {
 		await dbDelete(id);
 		await this.refresh();
