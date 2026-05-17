@@ -7,6 +7,7 @@ export interface DerivedStats {
 	defense: number;
 	initiative: number;
 	maxHp: number;
+	effectiveMaxHp: number;
 	meleeBonusCD: number;
 	maxLuck: number;
 	skillsTNs: Record<string, number>;
@@ -63,6 +64,12 @@ export function maxHp(c: Character): number {
 	return base + fromPerk + fromLevel;
 }
 
+// Rad damage reduces max HP (Core Rulebook p.55). Effective max never goes below 0;
+// at 0 the character cannot be stabilized until rads are removed.
+export function effectiveMaxHp(c: Character): number {
+	return Math.max(0, maxHp(c) - (c.radDamage ?? 0));
+}
+
 export function maxLuck(c: Character): number {
 	const lck = c.special.luck;
 	const giftedPenalty = c.traits.includes('gifted') ? 1 : 0;
@@ -86,6 +93,7 @@ export function deriveAll(c: Character): DerivedStats {
 		defense: defense(c),
 		initiative: initiative(c),
 		maxHp: maxHp(c),
+		effectiveMaxHp: effectiveMaxHp(c),
 		meleeBonusCD: meleeBonusCD(c),
 		maxLuck: maxLuck(c),
 		skillsTNs: skillTNs(c)

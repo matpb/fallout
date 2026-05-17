@@ -81,6 +81,7 @@ function normalizeCharacter(c: Character): Character {
 	// Old characters predate the createdSpecial snapshot — seed from current values
 	// so "(started N)" hints don't pop up for never-edited stats.
 	if (!c.createdSpecial) c.createdSpecial = { ...c.special };
+	if (typeof c.radDamage !== 'number' || c.radDamage < 0) c.radDamage = 0;
 	// Mister Handy: backfill default loadout if origin is misterHandy but fields are missing
 	if (c.originKey === 'misterHandy') {
 		if (!c.misterHandyVariant) c.misterHandyVariant = 'misterHandy';

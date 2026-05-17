@@ -33,6 +33,7 @@ export function createBlankCharacter(originKey: OriginKey = 'survivor'): Charact
 		trinket: '',
 		currentHp: 0,
 		currentLuck: 0,
+		radDamage: 0,
 		notes: '',
 		powerArmorActive: false
 	};

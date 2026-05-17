@@ -180,6 +180,9 @@ export interface Character {
 	// HP
 	currentHp: number;
 	currentLuck: number;
+	// Accumulated radiation damage. Each point reduces effective max HP
+	// (Core Rulebook p.55). Cleared by RadAway / chems, not by rest.
+	radDamage: number;
 
 	// Misc
 	notes: string;

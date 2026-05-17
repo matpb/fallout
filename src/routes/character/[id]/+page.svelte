@@ -436,9 +436,10 @@
 		}
 		// Level up
 		character.level += 1;
-		// Heal to new max HP on level-up (rulebook doesn't mandate but it's the convention)
+		// Heal to new max HP on level-up (rulebook doesn't mandate but it's the convention).
+		// Respect rad damage — leveling up doesn't clear rads.
 		const d = deriveAll(applyOriginToBase(character));
-		character.currentHp = d.maxHp;
+		character.currentHp = d.effectiveMaxHp;
 		await save();
 		levelUpOpen = false;
 	}
@@ -514,7 +515,7 @@
 					</div>
 				{/if}
 
-				<div class="grid grid-cols-2 gap-2 sm:grid-cols-4 no-print">
+				<div class="grid grid-cols-2 gap-2 sm:grid-cols-5 no-print">
 					<label class="text-xs">
 						<span class="opacity-70">LEVEL</span>
 						<input
@@ -533,20 +534,46 @@
 						<input class="pip-input" data-testid="xp-input" type="number" min="0" bind:value={character.xp} />
 					</label>
 					<label class="text-xs">
-						<span class="opacity-70">HP / {derived_.maxHp}</span>
+						<span class="opacity-70">
+							HP / {derived_.effectiveMaxHp}{#if character.radDamage > 0}<span class="pip-glow-amber"> (−{character.radDamage} rad)</span>{/if}
+						</span>
 						<input
 							class="pip-input"
 							data-testid="hp-input"
 							type="number"
 							min="0"
-							max={derived_.maxHp}
+							max={derived_.effectiveMaxHp}
 							value={character.currentHp}
 							onchange={(e) =>
 								(character!.currentHp = clamp(
 									parseInt((e.target as HTMLInputElement).value) || 0,
 									0,
-									derived_!.maxHp
+									derived_!.effectiveMaxHp
 								))}
+						/>
+					</label>
+					<label class="text-xs">
+						<span class="opacity-70" title="Radiation damage — reduces max HP. Cleared by RadAway, not by rest (Core Rulebook p.55).">
+							RADS {character.radDamage > 0 ? `/ ${derived_.maxHp}` : ''}
+						</span>
+						<input
+							class="pip-input"
+							data-testid="rad-input"
+							type="number"
+							min="0"
+							max={derived_.maxHp}
+							value={character.radDamage}
+							onchange={(e) => {
+								const v = clamp(
+									parseInt((e.target as HTMLInputElement).value) || 0,
+									0,
+									derived_!.maxHp
+								);
+								character!.radDamage = v;
+								// Keep current HP within the new effective max so the sheet stays consistent.
+								const newMax = Math.max(0, derived_!.maxHp - v);
+								if (character!.currentHp > newMax) character!.currentHp = newMax;
+							}}
 						/>
 					</label>
 					<label class="text-xs">
@@ -567,6 +594,12 @@
 						/>
 					</label>
 				</div>
+				{#if derived_.effectiveMaxHp === 0 && derived_.maxHp > 0}
+					<div class="pip-glow-amber border border-[var(--color-pip-amber)] p-2 text-xs">
+						⚠ Radiation has reduced your max HP to 0. You cannot be stabilized until rads are cleared
+						(RadAway / chems). Core Rulebook p.55.
+					</div>
+				{/if}
 
 				<div class="flex items-center gap-2 no-print">
 					<button

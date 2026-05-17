@@ -51,7 +51,7 @@
 								<div>
 									<div class="pip-display pip-glow text-xl">{c.name}</div>
 									<div class="text-sm opacity-80">
-										LVL {c.level} · {origin.name} · HP {c.currentHp}/{d.maxHp} · LCK {c.currentLuck}/{d.maxLuck}
+										LVL {c.level} · {origin.name} · HP {c.currentHp}/{d.effectiveMaxHp}{c.radDamage > 0 ? ` ☢${c.radDamage}` : ''} · LCK {c.currentLuck}/{d.maxLuck}
 									</div>
 								</div>
 								<div class="text-right text-xs opacity-60">
