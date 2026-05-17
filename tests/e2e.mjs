@@ -380,11 +380,15 @@ let createdSheetUrl;
 
 	const handyPanelVisible = await page.locator('[data-testid="handy-panel"]').isVisible();
 	expect('s6: handy panel on sheet', true, handyPanelVisible);
-	const attachText = await page.locator('[data-testid="handy-attachments"]').innerText();
-	expectTrue('s6: chassis lists 10mm Auto Pistol', attachText.includes('10mm Auto Pistol'));
-	expectTrue('s6: chassis lists Buzz-Saw', attachText.includes('Buzz-Saw'));
-	expectTrue('s6: chassis lists Laser Emitter', attachText.includes('Laser Emitter'));
-	expectTrue('s6: chassis does NOT list Pincer', !attachText.includes('Pincer'));
+	// Each arm slot is now a <select>; read its current value rather than the
+	// rendered text (which contains every option in every dropdown).
+	const selectedArms = await page
+		.locator('[data-testid="handy-attachments"] select')
+		.evaluateAll((selects) => selects.map((s) => /** @type {HTMLSelectElement} */ (s).value));
+	expectTrue('s6: chassis arm 0 is 10mm auto pistol', selectedArms[0] === 'tenMmAutoPistol');
+	expectTrue('s6: chassis arm 1 is buzz-saw', selectedArms[1] === 'buzzSaw');
+	expectTrue('s6: chassis arm 2 is laser emitter', selectedArms[2] === 'laserEmitter');
+	expectTrue('s6: no arm slot is set to pincer', !selectedArms.includes('pincer'));
 
 	// Carry weight should be 150 (origin override) regardless of STR
 	const carryText = await page.locator('text=/\\/ 150 lbs/').isVisible();
@@ -393,8 +397,10 @@ let createdSheetUrl;
 	// Switching to Miss Nanny on the sheet adds pincer back
 	await page.locator('[data-testid="handy-variant-edit-missNanny"]').click();
 	await page.waitForTimeout(200);
-	const attachText2 = await page.locator('[data-testid="handy-attachments"]').innerText();
-	expectTrue('s6: after Miss Nanny switch, Pincer present', attachText2.includes('Pincer'));
+	const selectedArms2 = await page
+		.locator('[data-testid="handy-attachments"] select')
+		.evaluateAll((selects) => selects.map((s) => /** @type {HTMLSelectElement} */ (s).value));
+	expectTrue('s6: after Miss Nanny switch, pincer is in one of the arm slots', selectedArms2.includes('pincer'));
 
 	await ctx.close();
 }
