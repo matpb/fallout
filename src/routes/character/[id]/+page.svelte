@@ -6,11 +6,16 @@
 	import {
 		MISTER_HANDY_VARIANTS,
 		MISTER_HANDY_VARIANT_BY_KEY,
-		ORIGIN_BY_KEY
+		ORIGIN_BY_KEY,
+		ROBOT_MODS,
+		ROBOT_MOD_BY_KEY,
+		ROBOT_PLATING_CATALOG,
+		ROBOT_PLATING_PRESETS,
+		findPlatingDef
 	} from '$lib/fallout/origins';
 	import { PERKS, PERKS_BY_KEY, type PerkDef } from '$lib/fallout/perks';
 	import { applyOriginToBase, isSkillBlockedByOrigin, isTagSkill } from '$lib/fallout/factory';
-	import { armorMatrix, deriveAll, inventoryWeight } from '$lib/fallout/derived';
+	import { armorMatrix, deriveAll, inventoryWeight, specialMaxFor } from '$lib/fallout/derived';
 	import { canLevelUp, xpForLevel, xpToNextLevel } from '$lib/fallout/levelUp';
 	import {
 		ARM_ATTACHMENT_META,
@@ -190,6 +195,38 @@
 		const def = MISTER_HANDY_VARIANT_BY_KEY[v];
 		character.misterHandyVariant = v;
 		character.misterHandyAttachments = [...def.attachments];
+		character.misterHandyPlating = def.plating;
+	}
+
+	function setHandyArm(idx: number, att: ArmAttachment) {
+		if (!character) return;
+		const current = character.misterHandyAttachments ?? ['pincer', 'flamer', 'laserEmitter'];
+		const next: ArmAttachment[] = [...current];
+		next[idx] = att;
+		character.misterHandyAttachments = next;
+	}
+
+	function addRobotMod(key: string) {
+		if (!character) return;
+		const mods = character.robotMods ?? [];
+		if (key === '__custom') {
+			character.robotMods = [
+				...mods,
+				{ id: uuid(), key: '__custom', name: '', effect: '', notes: '' }
+			];
+			return;
+		}
+		const def = ROBOT_MOD_BY_KEY[key];
+		if (!def) return;
+		character.robotMods = [
+			...mods,
+			{ id: uuid(), key: def.key, name: def.name, effect: def.effect, notes: '' }
+		];
+	}
+
+	function removeRobotMod(id: string) {
+		if (!character) return;
+		character.robotMods = (character.robotMods ?? []).filter((m) => m.id !== id);
 	}
 
 	function clamp(n: number, lo: number, hi: number): number {
@@ -362,13 +399,41 @@
 
 		<!-- SPECIAL -->
 		<section class="pip-panel">
-			<div class="pip-panel-header">S.P.E.C.I.A.L.</div>
+			<div class="pip-panel-header flex items-center justify-between">
+				<span>S.P.E.C.I.A.L.</span>
+				<span class="text-[0.65rem] opacity-80 normal-case tracking-normal">
+					base values · origin bonus shown below if any
+				</span>
+			</div>
 			<div class="grid grid-cols-7 gap-2 p-4 text-center sm:p-6">
 				{#each SPECIAL_KEYS as k (k)}
+					{@const baseVal = character.special[k]}
 					{@const finalVal = applyOriginToBase(character).special[k]}
+					{@const bonus = finalVal - baseVal}
+					{@const cap = specialMaxFor(character, k)}
 					<div>
 						<div class="text-xs opacity-70">{SPECIAL_LABELS[k].short}</div>
-						<div class="pip-display pip-glow text-3xl">{finalVal}</div>
+						<input
+							class="pip-input pip-display !text-3xl !text-center px-1"
+							data-testid={`special-${k}-input`}
+							type="number"
+							min="1"
+							max={cap}
+							value={baseVal}
+							onchange={(e) =>
+								(character!.special[k] = clamp(
+									parseInt((e.target as HTMLInputElement).value) || 0,
+									1,
+									cap
+								))}
+						/>
+						{#if bonus !== 0}
+							<div class="pip-glow-amber text-[0.6rem]">
+								{bonus > 0 ? '+' : ''}{bonus} ⇒ {finalVal}
+							</div>
+						{:else}
+							<div class="text-[0.6rem] opacity-50">max {cap}</div>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -446,16 +511,22 @@
 		{#if character.originKey === 'misterHandy'}
 			<section class="pip-panel" data-testid="handy-panel">
 				<div class="pip-panel-header">MR. HANDY CHASSIS</div>
-				<div class="space-y-3 p-4 sm:p-6">
+				<div class="space-y-4 p-4 sm:p-6">
 					<div class="text-xs opacity-80">
-						3 arm attachments determine your combat options + skill access.
+						3 arm attachments determine your combat options + skill access. Swap any single
+						arm below (INT + Repair test, 1 hour in fiction). Robot Mods occupy internal
+						module slots (max 3, p.184).
 						{#if !hasPincer}
-							<span class="pip-glow-amber">No pincer ⟹ Lockpick, Repair, and Throwing are unavailable.</span>
+							<span class="pip-glow-amber"
+								>No pincer ⟹ Lockpick, Repair, and Throwing are unavailable.</span
+							>
 						{/if}
 					</div>
 
 					<div>
-						<div class="text-xs opacity-70">VARIANT</div>
+						<div class="text-xs opacity-70">
+							PRESET LOADOUT (overwrites all 3 arms + plating)
+						</div>
 						<div class="mt-2 grid gap-2 sm:grid-cols-2">
 							{#each MISTER_HANDY_VARIANTS as v (v.key)}
 								{@const selected = character.misterHandyVariant === v.key}
@@ -480,15 +551,201 @@
 
 					<div>
 						<div class="text-xs opacity-70">ARM ATTACHMENTS</div>
-						<ul class="mt-2 space-y-1 text-sm" data-testid="handy-attachments">
+						<div class="mt-2 space-y-2" data-testid="handy-attachments">
 							{#each character.misterHandyAttachments ?? [] as att, i (i)}
-								<li class="border border-[var(--color-pip-green-dim)] p-2">
-									<div class="pip-display pip-glow text-base">
-										ARM {i + 1}: {ARM_ATTACHMENT_META[att as ArmAttachment].label}
+								{@const meta = ARM_ATTACHMENT_META[att as ArmAttachment]}
+								<div class="border border-[var(--color-pip-green-dim)] p-2 text-xs">
+									<div class="flex flex-wrap items-center gap-2">
+										<span class="pip-display pip-glow text-base">ARM {i + 1}:</span>
+										<select
+											class="pip-input pip-select max-w-xs"
+											data-testid={`handy-arm-${i}`}
+											value={att}
+											onchange={(e) =>
+												setHandyArm(
+													i,
+													(e.target as HTMLSelectElement).value as ArmAttachment
+												)}
+										>
+											{#each Object.keys(ARM_ATTACHMENT_META) as opt (opt)}
+												<option value={opt}
+													>{ARM_ATTACHMENT_META[opt as ArmAttachment].label}</option
+												>
+											{/each}
+										</select>
+										<span class="opacity-60">[{meta.rulebookPage}]</span>
 									</div>
-									<div class="text-xs opacity-80">
-										{ARM_ATTACHMENT_META[att as ArmAttachment].effect}
+
+									<!-- Stat block -->
+									<div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
+										<div>
+											<span class="opacity-60">Skill:</span>
+											<span class="pip-glow">{SKILL_LABELS[meta.skill]}</span>
+										</div>
+										<div>
+											<span class="opacity-60">Damage:</span>
+											<span class="pip-glow">{meta.damageCD} CD</span>
+											<span class="opacity-60">({meta.damageType})</span>
+										</div>
+										{#if meta.fireRate !== undefined}
+											<div>
+												<span class="opacity-60">Fire Rate:</span>
+												<span class="pip-glow">{meta.fireRate}</span>
+											</div>
+										{:else}
+											<div>
+												<span class="opacity-60">Kind:</span>
+												<span class="pip-glow">{meta.kind}</span>
+											</div>
+										{/if}
+										{#if meta.range}
+											<div>
+												<span class="opacity-60">Range:</span>
+												<span class="pip-glow">{meta.range}</span>
+											</div>
+										{/if}
+										{#if meta.ammo}
+											<div class="sm:col-span-2">
+												<span class="opacity-60">Ammo:</span>
+												<span class="pip-glow">{meta.ammo}</span>
+											</div>
+										{/if}
+										<div class="sm:col-span-2">
+											<span class="opacity-60">Effects:</span>
+											<span class="pip-glow">{meta.damageEffects}</span>
+										</div>
+										{#if meta.qualities}
+											<div class="sm:col-span-4">
+												<span class="opacity-60">Qualities:</span>
+												<span class="pip-glow">{meta.qualities}</span>
+											</div>
+										{/if}
 									</div>
+									<div class="mt-2 opacity-80">{meta.notes}</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+
+					<div>
+						<div class="text-xs opacity-70">PLATING</div>
+						<div class="mt-2 flex flex-wrap items-center gap-2">
+							<input
+								class="pip-input max-w-md"
+								data-testid="handy-plating-input"
+								placeholder="e.g. Standard Plating"
+								bind:value={character.misterHandyPlating}
+							/>
+						</div>
+						<div class="mt-2 flex flex-wrap items-center gap-1">
+							<div class="text-xs opacity-60">quick-pick:</div>
+							{#each ROBOT_PLATING_PRESETS as p (p)}
+								<button
+									type="button"
+									class="pip-btn px-2 py-0 text-xs"
+									onclick={() => (character!.misterHandyPlating = p)}
+								>
+									{p}
+								</button>
+							{/each}
+						</div>
+
+						{#if findPlatingDef(character.misterHandyPlating)}
+							{@const def = findPlatingDef(character.misterHandyPlating)!}
+							<div
+								class="mt-2 border border-[var(--color-pip-green-dim)] p-2 text-xs"
+								data-testid="handy-plating-details"
+							>
+								<div class="pip-display pip-glow text-base">{def.name}</div>
+								<div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
+									<div>
+										<span class="opacity-60">PHY DR:</span>
+										<span class="pip-glow">+{def.dr.physical}</span>
+									</div>
+									<div>
+										<span class="opacity-60">ENR DR:</span>
+										<span class="pip-glow">+{def.dr.energy}</span>
+									</div>
+									<div>
+										<span class="opacity-60">Carry:</span>
+										<span class="pip-glow"
+											>{def.carryWeightDelta >= 0 ? '+' : ''}{def.carryWeightDelta} lbs</span
+										>
+									</div>
+								</div>
+								{#if def.special}
+									<div class="mt-1">
+										<span class="opacity-60">Special:</span>
+										<span class="pip-glow-amber">{def.special}</span>
+									</div>
+								{/if}
+								<div class="mt-1 opacity-80">{def.notes}</div>
+							</div>
+						{:else if character.misterHandyPlating}
+							<div class="mt-2 text-[0.7rem] opacity-60">
+								[ unknown plating — type matches no rulebook entry ]
+							</div>
+						{/if}
+					</div>
+
+					<div>
+						<div class="text-xs opacity-70 flex items-center justify-between">
+							<span
+								>ROBOT MODS ({(character.robotMods ?? []).length} / 3)
+								{#if (character.robotMods ?? []).length > 3}
+									<span class="pip-glow-amber"
+										>⚠ exceeds rulebook limit of 3 mods</span
+									>
+								{/if}</span
+							>
+							<div class="flex items-center gap-1 no-print">
+								<select
+									class="pip-input pip-select max-w-xs text-xs"
+									data-testid="handy-mod-add"
+									value=""
+									onchange={(e) => {
+										const v = (e.target as HTMLSelectElement).value;
+										if (!v) return;
+										addRobotMod(v);
+										(e.target as HTMLSelectElement).value = '';
+									}}
+								>
+									<option value="">[ + add mod ]</option>
+									{#each ROBOT_MODS as m (m.key)}
+										<option value={m.key}>{m.name}</option>
+									{/each}
+									<option value="__custom">— Custom (write your own) —</option>
+								</select>
+							</div>
+						</div>
+						<ul class="mt-2 space-y-2 text-xs" data-testid="handy-mods-list">
+							{#if (character.robotMods ?? []).length === 0}
+								<li class="opacity-70">[ no modules installed ]</li>
+							{/if}
+							{#each character.robotMods ?? [] as m, i (m.id)}
+								<li
+									class="border border-[var(--color-pip-green-dim)] p-2"
+									data-testid={`handy-mod-${i}`}
+								>
+									<div class="flex flex-wrap items-center justify-between gap-2">
+										<input
+											class="pip-input max-w-md"
+											data-testid={`handy-mod-name-${i}`}
+											placeholder="Mod name"
+											bind:value={m.name}
+										/>
+										<button
+											class="pip-btn pip-btn-danger px-2 py-0 text-center no-print"
+											data-testid={`handy-mod-remove-${i}`}
+											onclick={() => removeRobotMod(m.id)}>X</button
+										>
+									</div>
+									<textarea
+										class="pip-textarea mt-1 min-h-[3rem] text-[0.7rem]"
+										data-testid={`handy-mod-effect-${i}`}
+										placeholder="Effect / mechanical text"
+										bind:value={m.effect}
+									></textarea>
 								</li>
 							{/each}
 						</ul>

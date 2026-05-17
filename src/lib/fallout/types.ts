@@ -112,6 +112,17 @@ export interface ArmorPiece {
 	notes?: string;
 }
 
+// Robot Mods (Core Rulebook p.184-185). Mr Handy can install up to 3.
+// `key` references the catalog in origins.ts when picked from the list,
+// or '__custom' if the user typed a homebrew mod by hand.
+export interface RobotModPick {
+	id: string;
+	key: string; // e.g. 'reconSensors', 'diagnosis', '__custom'
+	name: string; // editable; pre-filled from catalog when key matches
+	effect: string; // editable; pre-filled from catalog when key matches
+	notes?: string;
+}
+
 export interface PerkPick {
 	key: string;
 	rank: number;
@@ -163,7 +174,9 @@ export interface Character {
 
 	// Origin-specific fields
 	misterHandyVariant?: MisterHandyVariant;
-	misterHandyAttachments?: ArmAttachment[]; // length === 3
+	misterHandyAttachments?: ArmAttachment[]; // length === 3, individually editable
+	misterHandyPlating?: string; // single plating type label, e.g. "Standard Plating", "Mister Gutsy Plating"
+	robotMods?: RobotModPick[]; // up to 3 per rulebook p.184
 	vaultNumber?: string; // Vault Dweller
 	vaultExperiment?: string; // Vault Dweller — once-per-quest complication reminder
 }
@@ -372,35 +385,97 @@ export const BODY_LOCATION_LABELS: Record<BodyLocation, string> = {
 	rightLeg: 'Right Leg'
 };
 
-// Mr. Handy attachment metadata (Core Rulebook p.55).
-export const ARM_ATTACHMENT_META: Record<
-	ArmAttachment,
-	{ label: string; effect: string; isPincer: boolean }
-> = {
+// Mr. Handy attachment metadata (Core Rulebook p.55 + linked weapon entries).
+// Weapon stats are pulled from the base weapon the attachment uses:
+//   10mm Auto Pistol → 10mm pistol w/ automatic receiver (p.95)
+//   Laser Emitter   → laser gun (p.101)
+//   Flamer          → flamer (p.106)
+export interface ArmAttachmentMeta {
+	label: string;
+	isPincer: boolean;
+	kind: 'melee' | 'ranged' | 'manipulator';
+	skill: SkillKey;
+	damageCD: number;
+	damageType: DamageType;
+	damageEffects: string;
+	fireRate?: number;
+	range?: string; // C / M / L / X
+	ammo?: string;
+	qualities?: string;
+	notes: string;
+	rulebookPage: string;
+}
+
+export const ARM_ATTACHMENT_META: Record<ArmAttachment, ArmAttachmentMeta> = {
 	pincer: {
 		label: 'Pincer',
-		effect:
-			'Manipulate objects (≤40 lbs each). Unarmed attack 2 CD physical. Required for Lockpick, Repair, Throwing.',
-		isPincer: true
+		isPincer: true,
+		kind: 'manipulator',
+		skill: 'unarmed',
+		damageCD: 2,
+		damageType: 'physical',
+		damageEffects: '—',
+		notes:
+			'Manipulate objects (each pincer lifts ≤40 lbs). Required to use Lockpick, Repair, and Throwing.',
+		rulebookPage: 'p.55'
 	},
 	buzzSaw: {
 		label: 'Buzz-Saw',
-		effect: 'Melee attack: 3 CD Piercing 1 physical.',
-		isPincer: false
+		isPincer: false,
+		kind: 'melee',
+		skill: 'meleeWeapons',
+		damageCD: 3,
+		damageType: 'physical',
+		damageEffects: 'Piercing 1',
+		qualities: 'Melee',
+		notes: 'Cut objects or make melee attacks with a circular saw.',
+		rulebookPage: 'p.55'
 	},
 	tenMmAutoPistol: {
 		label: '10mm Auto Pistol',
-		effect: 'Ranged attack (10mm pistol with automatic receiver).',
-		isPincer: false
+		isPincer: false,
+		kind: 'ranged',
+		skill: 'smallGuns',
+		damageCD: 4,
+		damageType: 'physical',
+		damageEffects: '—',
+		fireRate: 2,
+		range: 'C',
+		ammo: '10mm',
+		qualities: 'Close Quarters, Reliable, Automatic receiver',
+		notes:
+			'Effectively a 10mm pistol with the automatic receiver mod (p.95). Gutsy units start with 20 rounds.',
+		rulebookPage: 'p.55, p.95'
 	},
 	laserEmitter: {
 		label: 'Laser Emitter',
-		effect: 'Ranged attack (laser gun).',
-		isPincer: false
+		isPincer: false,
+		kind: 'ranged',
+		skill: 'energyWeapons',
+		damageCD: 4,
+		damageType: 'energy',
+		damageEffects: 'Piercing 1',
+		fireRate: 2,
+		range: 'C',
+		ammo: 'Fusion Cell',
+		qualities: '—',
+		notes: 'Laser gun (p.101). Can also be used to cut through objects.',
+		rulebookPage: 'p.55, p.101'
 	},
 	flamer: {
 		label: 'Flamer',
-		effect: 'Short-range ranged attack (flamer).',
-		isPincer: false
+		isPincer: false,
+		kind: 'ranged',
+		skill: 'bigGuns',
+		damageCD: 4,
+		damageType: 'energy',
+		damageEffects: 'Burst, Persistent, Spread',
+		fireRate: 4,
+		range: 'C',
+		ammo: 'Flamer Fuel',
+		qualities: 'Two-Handed',
+		notes:
+			'Sprays an ignited fuel mixture (p.106). Ideal for clearing dead foliage, irritating vermin, and fortified bunkers.',
+		rulebookPage: 'p.55, p.106'
 	}
 };

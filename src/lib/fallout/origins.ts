@@ -186,6 +186,210 @@ export const MISTER_HANDY_VARIANT_BY_KEY: Record<MisterHandyVariant, MisterHandy
 		MisterHandyVariantDef
 	>;
 
+// Robot Mods catalog — Core Rulebook p.184-185 (text condensed, mechanics intact).
+export interface RobotModDef {
+	key: string;
+	name: string;
+	effect: string;
+}
+
+export const ROBOT_MODS: RobotModDef[] = [
+	{
+		key: 'behavioralAnalysis',
+		name: 'Behavioral Analysis Mod',
+		effect: 'Reduce the difficulty of Speech tests by 1 (min. 0).'
+	},
+	{
+		key: 'diagnosis',
+		name: 'Diagnosis Mod',
+		effect: 'Reduce the difficulty of Medicine tests by 1 (min. 0).'
+	},
+	{
+		key: 'hackingModule',
+		name: 'Hacking Module',
+		effect:
+			'Reduce the difficulty of Science tests to hack into locked computer systems by 1 (min. 0).'
+	},
+	{
+		key: 'hazardDetection',
+		name: 'Hazard Detection Mod',
+		effect:
+			'Reduce the difficulty of Survival tests to detect and disable traps and similar hazards by 1 (min. 0).'
+	},
+	{
+		key: 'integralBoiler',
+		name: 'Integral Boiler Mod',
+		effect:
+			'Once per scene out of combat, turn 2 dirty waters into 1 purified water in ten minutes.'
+	},
+	{
+		key: 'lockpickModule',
+		name: 'Lockpick Module',
+		effect:
+			'Reduce the difficulty of Lockpick tests by 1 (min. 0). Does not need bobby pins or other lockpicking tools.'
+	},
+	{
+		key: 'radiationCoils',
+		name: 'Radiation Coils',
+		effect:
+			'Can turn on or off at the start of a turn. While on, all creatures within Reach suffer 3 CD Radiation damage at the end of the robot\'s turn.'
+	},
+	{
+		key: 'reconSensors',
+		name: 'Recon Sensors',
+		effect:
+			'Reduce difficulty of tests to detect hidden opponents by 1 (min. 0). Enemies visible to you who attempt to hide add +1 to the difficulty of their Sneak tests.'
+	},
+	{
+		key: 'regenerationField',
+		name: 'Regeneration Field',
+		effect:
+			'Outside of combat, allies regain 2 HP at the start of each scene you are present within.'
+	},
+	{
+		key: 'resistanceField',
+		name: 'Resistance Field',
+		effect: 'Allies within Close range receive +2 Physical damage resistance.'
+	},
+	{
+		key: 'sensorArray',
+		name: 'Sensor Array',
+		effect:
+			'Re-roll 1d20 on all PER tests. May attempt PER tests to detect things which cannot normally be detected by the naked eye, such as radiation.'
+	},
+	{
+		key: 'stealthField',
+		name: 'Stealth Field',
+		effect: 'Allies within Close range may re-roll 1d20 on Stealth tests.'
+	},
+	{
+		key: 'teslaCoils',
+		name: 'Tesla Coils',
+		effect:
+			'Can turn on or off at the start of a turn. While on, all enemies within Reach suffer 4 CD Piercing 1, Stun Energy damage at the end of the robot\'s turn.'
+	}
+];
+
+export const ROBOT_MOD_BY_KEY: Record<string, RobotModDef> = Object.fromEntries(
+	ROBOT_MODS.map((m) => [m.key, m])
+);
+
+// Robot plating catalog (Core Rulebook p.145-147).
+// Plating covers the whole robot — Optics, Main Body, Arms, Thruster — and provides
+// physical/energy damage resistance plus special effects on some plates.
+export interface RobotPlatingDef {
+	key: string;
+	name: string;
+	dr: { physical: number; energy: number };
+	carryWeightDelta: number; // applied vs base 150 lbs Mr Handy carry
+	special?: string; // melee complication / energy bonus / etc.
+	notes: string;
+}
+
+export const ROBOT_PLATING_CATALOG: RobotPlatingDef[] = [
+	{
+		key: 'standard',
+		name: 'Standard Plating',
+		dr: { physical: 0, energy: 0 },
+		carryWeightDelta: 0,
+		notes:
+			'Default factory plating shipped with all brand-new Mister Handy models. No cost, no bonus.'
+	},
+	{
+		key: 'gutsy',
+		name: 'Mister Gutsy Plating',
+		dr: { physical: 0, energy: 0 },
+		carryWeightDelta: 0,
+		special: 'Better thermal absorption — reinforced against energy weaponry.',
+		notes: 'Default plating for the Mister Gutsy military variant.'
+	},
+	{
+		key: 'factory',
+		name: 'Factory Armor',
+		dr: { physical: 1, energy: 1 },
+		carryWeightDelta: 0,
+		notes:
+			'Standardized factory-made plating designed to fit any Mister Handy model. +1 PHY/+1 ENR per fitted location.'
+	},
+	{
+		key: 'factoryStorage',
+		name: 'Factory Storage Armor',
+		dr: { physical: 1, energy: 1 },
+		carryWeightDelta: 20,
+		notes:
+			'Like factory armor but with additional storage compartments. Main Body only. Armorer 1 to install.'
+	},
+	{
+		key: 'primal',
+		name: 'Primal Plate',
+		dr: { physical: 2, energy: 0 },
+		carryWeightDelta: -10,
+		notes:
+			'Makeshift bulk armor providing extra physical protection. Reduces carry weight (-10/-20 per location).'
+	},
+	{
+		key: 'serrated',
+		name: 'Serrated Plate',
+		dr: { physical: 2, energy: 0 },
+		carryWeightDelta: -10,
+		special:
+			'If a melee attacker against a serrated location suffers a complication, they take 2 CD Persistent (Physical) damage. Arms fitted with serrated plate gain the Persistent (Physical) damage effect on melee attacks.',
+		notes: 'Makeshift, jagged. Armorer 1 to install.'
+	},
+	{
+		key: 'noxious',
+		name: 'Noxious Plate',
+		dr: { physical: 2, energy: 0 },
+		carryWeightDelta: -10,
+		special:
+			'If a melee attacker against a noxious location suffers a complication, they take 2 CD Persistent (Poison) damage. Arms fitted with noxious plate gain Persistent (Poison) on melee attacks.',
+		notes: 'Coated in toxic materials. Armorer 1 to install.'
+	},
+	{
+		key: 'toxic',
+		name: 'Toxic Plate',
+		dr: { physical: 2, energy: 0 },
+		carryWeightDelta: -10,
+		special:
+			'If a melee attacker against a toxic location suffers a complication, they take 2 CD Radiation damage. Arms fitted with toxic plate gain the Radioactive damage effect on melee attacks.',
+		notes: 'Makeshift, irradiated metal plating.'
+	},
+	{
+		key: 'actuated',
+		name: 'Actuated Frame',
+		dr: { physical: 1, energy: 0 },
+		carryWeightDelta: 0,
+		special:
+			'Melee attacks from arms fitted with an actuated frame inflict +1 CD damage. If the Thruster is fitted, you may make both a Move minor action and a Sprint major action in the same turn.'
+	, notes: 'Specially made plates fitted with actuators and motive systems.'
+	},
+	{
+		key: 'voltaic',
+		name: 'Voltaic Frame',
+		dr: { physical: 0, energy: 1 },
+		carryWeightDelta: 0,
+		special:
+			'Any energy-damage attack inflicts +1 CD if any location has Voltaic Frame; +1 more for every two additional fitted locations.',
+		notes: 'Conduits and capacitors woven into the plating.'
+	}
+];
+
+export const ROBOT_PLATING_BY_KEY: Record<string, RobotPlatingDef> = Object.fromEntries(
+	ROBOT_PLATING_CATALOG.map((p) => [p.key, p])
+);
+
+// Quick-pick string list — used as buttons. Plating is stored on the character
+// as free-text `misterHandyPlating`; we match by name to find the catalog entry.
+export const ROBOT_PLATING_PRESETS: string[] = ROBOT_PLATING_CATALOG.map((p) => p.name);
+
+export function findPlatingDef(name: string | undefined): RobotPlatingDef | null {
+	if (!name) return null;
+	const trimmed = name.trim().toLowerCase();
+	return (
+		ROBOT_PLATING_CATALOG.find((p) => p.name.toLowerCase() === trimmed) ?? null
+	);
+}
+
 export const SURVIVOR_TRAITS: SurvivorTraitDef[] = [
 	{
 		key: 'educated',

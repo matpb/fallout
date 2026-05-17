@@ -33,6 +33,8 @@ function normalizeCharacter(c: Character): Character {
 		if (!Array.isArray(c.misterHandyAttachments) || c.misterHandyAttachments.length !== 3) {
 			c.misterHandyAttachments = ['pincer', 'flamer', 'laserEmitter'];
 		}
+		if (typeof c.misterHandyPlating !== 'string') c.misterHandyPlating = 'Standard Plating';
+		if (!Array.isArray(c.robotMods)) c.robotMods = [];
 	}
 	return c;
 }

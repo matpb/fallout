@@ -45,6 +45,8 @@ export function createBlankCharacter(originKey: OriginKey = 'survivor'): Charact
 		const v = MISTER_HANDY_VARIANT_BY_KEY.misterHandy;
 		c.misterHandyVariant = v.key;
 		c.misterHandyAttachments = [...v.attachments];
+		c.misterHandyPlating = v.plating;
+		c.robotMods = [];
 	}
 	// Compute starting HP/Luck from base
 	const withBonus = { ...c, special: applyOriginBonus(c) };
