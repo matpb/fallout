@@ -111,16 +111,22 @@ export function armorMatrix(c: Character): ArmorMatrix {
 	for (const loc of BODY_LOCATIONS) {
 		out[loc] = { physical: 0, energy: 0, radiation: 0, poison: 0 };
 	}
+	// Per rulebook p.122: when multiple items cover a location (clothing under
+	// armor), the *highest* DR per damage type wins — not the sum. Take max
+	// across all equipped items covering each location.
 	for (const piece of c.armor ?? []) {
 		if (!piece.equipped) continue;
-		const row = out[piece.location];
-		if (!row) continue;
-		row.physical += piece.dr.physical || 0;
-		row.energy += piece.dr.energy || 0;
-		row.radiation += piece.dr.radiation || 0;
-		row.poison += piece.dr.poison || 0;
+		for (const cov of piece.coverage ?? []) {
+			const row = out[cov.location];
+			if (!row) continue;
+			row.physical = Math.max(row.physical, cov.dr.physical || 0);
+			row.energy = Math.max(row.energy, cov.dr.energy || 0);
+			row.radiation = Math.max(row.radiation, cov.dr.radiation || 0);
+			row.poison = Math.max(row.poison, cov.dr.poison || 0);
+		}
 	}
-	// Mr Handy plating covers the whole body — add its PHY/ENR DR to every location.
+	// Mr Handy plating covers the whole body — its PHY/ENR DR adds on top of
+	// armor (plating is the robot's structure, distinct from worn armor).
 	if (c.originKey === 'misterHandy') {
 		const plating = findPlatingDef(c.misterHandyPlating);
 		if (plating) {

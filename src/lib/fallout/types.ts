@@ -96,10 +96,10 @@ export interface WeaponItem {
 	notes?: string;
 }
 
-// Armor pieces protect one body location with per-damage-type DR.
-export interface ArmorPiece {
-	id: string;
-	name: string;
+// Per-location DR contribution from a single armor item.
+// A clothing/outfit/set item lists many of these (covering arms+legs+torso, etc.);
+// a single armor piece (Combat Armor Torso) lists exactly one.
+export interface ArmorCoverage {
 	location: BodyLocation;
 	dr: {
 		physical: number;
@@ -107,6 +107,16 @@ export interface ArmorPiece {
 		radiation: number;
 		poison: number;
 	};
+}
+
+// Armor item — clothing, outfit, armor piece, or headgear — covers one or more
+// body locations, each with its own per-damage-type DR. Rulebook p.122: when
+// multiple items cover a location, the *highest* DR per damage type wins
+// (clothing under armor doesn't stack).
+export interface ArmorPiece {
+	id: string;
+	name: string;
+	coverage: ArmorCoverage[];
 	weight: number;
 	equipped: boolean;
 	notes?: string;
@@ -130,7 +140,7 @@ export interface PerkPick {
 
 export interface Character {
 	id: string; // uuid
-	schemaVersion: 2;
+	schemaVersion: 3;
 	createdAt: number;
 	updatedAt: number;
 

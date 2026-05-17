@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { exportDB, importInto } from 'dexie-export-import';
-import type { Character } from './fallout/types';
+import type { ArmorPiece, Character } from './fallout/types';
 
 class PipBoyDB extends Dexie {
 	characters!: Table<Character, string>;
@@ -16,17 +16,68 @@ class PipBoyDB extends Dexie {
 		this.version(2).stores({
 			characters: 'id, name, originKey, level, updatedAt'
 		});
+		// v3: armor pieces switched from {location, dr} (single-location) to
+		// {coverage: [{location, dr}]} (1-to-many). normalizeArmorPiece() folds the
+		// old shape into a single-entry coverage[] so v2 characters keep working.
+		this.version(3).stores({
+			characters: 'id, name, originKey, level, updatedAt'
+		});
 	}
 }
 
 export const db = new PipBoyDB();
 
+// v2 armor shape (single location + single DR object).
+type V2ArmorPiece = Omit<ArmorPiece, 'coverage'> & {
+	location?: ArmorPiece['coverage'][number]['location'];
+	dr?: ArmorPiece['coverage'][number]['dr'];
+};
+
+function normalizeArmorPiece(a: ArmorPiece | V2ArmorPiece): ArmorPiece {
+	if ('coverage' in a && Array.isArray(a.coverage)) {
+		// Already v3 — clean up if anyone hand-stuffed it
+		return {
+			id: a.id,
+			name: a.name,
+			coverage: a.coverage.map((c) => ({
+				location: c.location,
+				dr: {
+					physical: c.dr.physical || 0,
+					energy: c.dr.energy || 0,
+					radiation: c.dr.radiation || 0,
+					poison: c.dr.poison || 0
+				}
+			})),
+			weight: a.weight || 0,
+			equipped: a.equipped ?? true,
+			notes: a.notes
+		};
+	}
+	// v2 → v3: lift the single location into a one-entry coverage[]
+	const v2 = a as V2ArmorPiece;
+	return {
+		id: v2.id,
+		name: v2.name,
+		coverage:
+			v2.location && v2.dr
+				? [{ location: v2.location, dr: { ...v2.dr } }]
+				: [],
+		weight: v2.weight || 0,
+		equipped: v2.equipped ?? true,
+		notes: v2.notes
+	};
+}
+
 function normalizeCharacter(c: Character): Character {
-	// Idempotent backfill so v1 → v2 reads don't crash, and so a re-saved character
+	// Idempotent backfill so v1 → v3 reads don't crash, and so a re-saved character
 	// upgrades its on-disk shape.
-	c.schemaVersion = 2;
+	c.schemaVersion = 3;
 	if (!Array.isArray(c.weapons)) c.weapons = [];
-	if (!Array.isArray(c.armor)) c.armor = [];
+	if (!Array.isArray(c.armor)) {
+		c.armor = [];
+	} else {
+		c.armor = c.armor.map((a) => normalizeArmorPiece(a as ArmorPiece | V2ArmorPiece));
+	}
 	// Old characters predate the createdSpecial snapshot — seed from current values
 	// so "(started N)" hints don't pop up for never-edited stats.
 	if (!c.createdSpecial) c.createdSpecial = { ...c.special };

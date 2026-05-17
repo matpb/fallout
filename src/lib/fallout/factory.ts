@@ -13,7 +13,7 @@ export function createBlankCharacter(originKey: OriginKey = 'survivor'): Charact
 	const baseSpecial = { strength: 5, perception: 5, endurance: 5, charisma: 5, intelligence: 5, agility: 5, luck: 5 };
 	const c: Character = {
 		id: uuid(),
-		schemaVersion: 2,
+		schemaVersion: 3,
 		createdAt: now,
 		updatedAt: now,
 		name: 'New Wanderer',

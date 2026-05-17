@@ -262,8 +262,9 @@
 		const piece: ArmorPiece = {
 			id: uuid(),
 			name: '',
-			location: 'torso',
-			dr: { physical: 0, energy: 0, radiation: 0, poison: 0 },
+			coverage: [
+				{ location: 'torso', dr: { physical: 0, energy: 0, radiation: 0, poison: 0 } }
+			],
 			weight: 0,
 			equipped: true,
 			notes: ''
@@ -274,6 +275,25 @@
 	function removeArmor(id: string) {
 		if (!character) return;
 		character.armor = character.armor.filter((a) => a.id !== id);
+	}
+
+	function addArmorCoverage(armorId: string) {
+		if (!character) return;
+		const piece = character.armor.find((a) => a.id === armorId);
+		if (!piece) return;
+		piece.coverage = [
+			...piece.coverage,
+			{ location: 'torso', dr: { physical: 0, energy: 0, radiation: 0, poison: 0 } }
+		];
+		character.armor = [...character.armor];
+	}
+
+	function removeArmorCoverage(armorId: string, idx: number) {
+		if (!character) return;
+		const piece = character.armor.find((a) => a.id === armorId);
+		if (!piece) return;
+		piece.coverage = piece.coverage.filter((_, i) => i !== idx);
+		character.armor = [...character.armor];
 	}
 
 	function setHandyVariant(v: MisterHandyVariant) {
@@ -1305,95 +1325,141 @@
 				{#each character.armor as a, i (a.id)}
 					{@const warn = isUnfitArmorForSuperMutant(a)}
 					<div
-						class="grid grid-cols-12 gap-1 border p-2 text-xs {warn
+						class="space-y-2 border p-2 text-xs {warn
 							? 'border-[var(--color-pip-amber)]'
 							: 'border-[var(--color-pip-green-dim)]'}"
 						data-testid={`armor-row-${i}`}
 					>
-						<input
-							class="pip-input col-span-6 sm:col-span-3"
-							placeholder="Piece (e.g. Combat Armor Torso)"
-							data-testid={`armor-name-${i}`}
-							bind:value={a.name}
-						/>
-						<label class="col-span-6 sm:col-span-2 text-[0.7rem]">
-							<span class="opacity-70">LOCATION</span>
-							<select class="pip-input pip-select" bind:value={a.location}>
-								{#each BODY_LOCATIONS as loc (loc)}
-									<option value={loc}>{BODY_LOCATION_LABELS[loc]}</option>
-								{/each}
-							</select>
-						</label>
-						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
-							<span class="opacity-70">PHY</span>
-							<input
-								class="pip-input"
-								type="number"
-								min="0"
-								bind:value={a.dr.physical}
-							/>
-						</label>
-						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
-							<span class="opacity-70">ENR</span>
-							<input
-								class="pip-input"
-								type="number"
-								min="0"
-								bind:value={a.dr.energy}
-							/>
-						</label>
-						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
-							<span class="opacity-70">RAD</span>
-							<input
-								class="pip-input"
-								type="number"
-								min="0"
-								bind:value={a.dr.radiation}
-							/>
-						</label>
-						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
-							<span class="opacity-70">PSN</span>
-							<input
-								class="pip-input"
-								type="number"
-								min="0"
-								bind:value={a.dr.poison}
-							/>
-						</label>
-						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
-							<span class="opacity-70">LBS</span>
-							<input
-								class="pip-input"
-								type="number"
-								min="0"
-								step="0.1"
-								bind:value={a.weight}
-							/>
-						</label>
-						<label class="col-span-6 sm:col-span-1 flex items-center gap-1 text-[0.7rem]">
-							<input type="checkbox" bind:checked={a.equipped} />
-							<span>Worn</span>
-						</label>
-						<div class="col-span-12 flex items-center justify-between gap-2 pt-1 text-[0.7rem]">
-							<div class="opacity-80">
-								{#if warn}
-									<span class="pip-glow-amber">⚠ Super mutants can only wear Raider armor (rename to include "Raider" if intentional).</span>
-								{:else}
-									<span class="opacity-60">{a.notes ?? ''}</span>
-								{/if}
+						<!-- Item header row: name, weight, worn, remove -->
+						<div class="grid grid-cols-12 items-end gap-1">
+							<label class="col-span-12 sm:col-span-7 text-[0.7rem]">
+								<span class="opacity-70">ITEM</span>
+								<input
+									class="pip-input"
+									placeholder="Piece (e.g. Combat Armor, Drifter Outfit)"
+									data-testid={`armor-name-${i}`}
+									bind:value={a.name}
+								/>
+							</label>
+							<label class="col-span-4 sm:col-span-2 text-[0.7rem]">
+								<span class="opacity-70">LBS</span>
+								<input
+									class="pip-input"
+									type="number"
+									min="0"
+									step="0.1"
+									bind:value={a.weight}
+								/>
+							</label>
+							<label class="col-span-5 sm:col-span-2 flex items-center gap-1 text-[0.7rem]">
+								<input type="checkbox" bind:checked={a.equipped} />
+								<span>Worn</span>
+							</label>
+							<div class="col-span-3 sm:col-span-1 flex justify-end">
+								<button
+									class="pip-btn pip-btn-danger px-2 py-0 text-center no-print"
+									data-testid={`armor-remove-${i}`}
+									onclick={() => removeArmor(a.id)}
+									title="Remove armor item">X</button
+								>
 							</div>
-							<button
-								class="pip-btn pip-btn-danger px-2 py-0 text-center no-print"
-								data-testid={`armor-remove-${i}`}
-								onclick={() => removeArmor(a.id)}>X</button
-							>
 						</div>
+
+						<!-- Coverage rows: 1-to-many (location, dr) -->
+						<div class="space-y-1">
+							<div class="flex items-center justify-between text-[0.65rem] opacity-70">
+								<span>COVERAGE — one entry per protected location</span>
+								<button
+									type="button"
+									class="text-xs underline no-print"
+									data-testid={`armor-cov-add-${i}`}
+									onclick={() => addArmorCoverage(a.id)}
+									title="Add another location (e.g. clothing covers Arms + Legs + Torso)"
+									>[ + add location ]</button
+								>
+							</div>
+							{#if (a.coverage ?? []).length === 0}
+								<div class="opacity-60">[ no locations — add at least one ]</div>
+							{/if}
+							{#each a.coverage as cov, j (j)}
+								<div
+									class="grid grid-cols-12 gap-1"
+									data-testid={`armor-cov-${i}-${j}`}
+								>
+									<label class="col-span-12 sm:col-span-3 text-[0.65rem]">
+										<span class="opacity-70">LOCATION</span>
+										<select
+											class="pip-input pip-select"
+											data-testid={`armor-cov-location-${i}-${j}`}
+											bind:value={cov.location}
+										>
+											{#each BODY_LOCATIONS as loc (loc)}
+												<option value={loc}>{BODY_LOCATION_LABELS[loc]}</option>
+											{/each}
+										</select>
+									</label>
+									<label class="col-span-3 sm:col-span-2 text-[0.65rem]">
+										<span class="opacity-70">PHY</span>
+										<input
+											class="pip-input"
+											type="number"
+											min="0"
+											bind:value={cov.dr.physical}
+										/>
+									</label>
+									<label class="col-span-3 sm:col-span-2 text-[0.65rem]">
+										<span class="opacity-70">ENR</span>
+										<input
+											class="pip-input"
+											type="number"
+											min="0"
+											bind:value={cov.dr.energy}
+										/>
+									</label>
+									<label class="col-span-3 sm:col-span-2 text-[0.65rem]">
+										<span class="opacity-70">RAD</span>
+										<input
+											class="pip-input"
+											type="number"
+											min="0"
+											bind:value={cov.dr.radiation}
+										/>
+									</label>
+									<label class="col-span-2 sm:col-span-2 text-[0.65rem]">
+										<span class="opacity-70">PSN</span>
+										<input
+											class="pip-input"
+											type="number"
+											min="0"
+											bind:value={cov.dr.poison}
+										/>
+									</label>
+									<div class="col-span-1 sm:col-span-1 flex items-end justify-end">
+										<button
+											class="pip-btn pip-btn-danger px-2 py-0 text-center no-print"
+											data-testid={`armor-cov-remove-${i}-${j}`}
+											disabled={a.coverage.length <= 1}
+											onclick={() => removeArmorCoverage(a.id, j)}
+											title="Remove this location">X</button
+										>
+									</div>
+								</div>
+							{/each}
+						</div>
+
+						{#if warn}
+							<div class="pip-glow-amber text-[0.7rem]">
+								⚠ Super mutants can only wear Raider armor (rename to include "Raider" if intentional).
+							</div>
+						{/if}
 					</div>
 				{/each}
 
 				{#if armorByLocation}
 					<details class="border border-[var(--color-pip-green-dim)] p-2 text-xs">
-						<summary class="cursor-pointer">[ ? ] Total DR by location (equipped only)</summary>
+						<summary class="cursor-pointer"
+							>[ ? ] DR by location (highest equipped per location · p.122)</summary
+						>
 						<table class="mt-2 w-full border-collapse text-center">
 							<thead>
 								<tr class="opacity-70">

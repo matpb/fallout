@@ -713,6 +713,71 @@ let createdSheetUrl;
 }
 
 // =========================================================================
+// SECTION 11.5: Armor 1-to-many coverage (whole-body items)
+// =========================================================================
+{
+	const ctx = await newCtx();
+	const page = await ctx.newPage();
+	page.on('pageerror', (e) => errors.push(`[s115 pageerror] ${e.message}`));
+	page.on('console', (m) => m.type() === 'error' && errors.push(`[s115 err] ${m.text()}`));
+
+	console.log(`\n=== SECTION 11.5: Armor multi-location coverage ===`);
+	await page.goto(`${url}/create`, { waitUntil: 'networkidle' });
+	await fillSurvivorWizard(page, 'Drifter');
+	await page.waitForTimeout(500);
+
+	// Add a clothing-like item that covers 3 locations
+	await page.locator('[data-testid="armor-add"]').click();
+	await page.waitForTimeout(150);
+	await page.locator('[data-testid="armor-name-0"]').fill('Drifter Outfit');
+	await page.locator('[data-testid="armor-name-0"]').blur();
+
+	// Should start with 1 coverage row (default Torso)
+	const initialCovs = await page
+		.locator('[data-testid^="armor-cov-0-"]')
+		.count();
+	expect('s11.5: starts with 1 coverage row', 1, initialCovs);
+
+	// Add 2 more locations (so we cover 3 in total — torso/arms/legs-style)
+	await page.locator('[data-testid="armor-cov-add-0"]').click();
+	await page.waitForTimeout(150);
+	await page.locator('[data-testid="armor-cov-add-0"]').click();
+	await page.waitForTimeout(150);
+	const threeCovs = await page.locator('[data-testid^="armor-cov-0-"]').count();
+	expect('s11.5: 3 coverage rows after [+ add location] x2', 3, threeCovs);
+
+	// Set distinct locations + DRs
+	await page.locator('[data-testid="armor-cov-location-0-0"]').selectOption('torso');
+	await page.locator('[data-testid="armor-cov-location-0-1"]').selectOption('leftArm');
+	await page.locator('[data-testid="armor-cov-location-0-2"]').selectOption('leftLeg');
+	// Set PHY 2 on torso
+	const torsoPhy = page.locator('[data-testid="armor-cov-0-0"] input[type="number"]').first();
+	await torsoPhy.fill('2');
+	await torsoPhy.blur();
+
+	// Auto-save then reload — coverage must persist
+	await page.waitForTimeout(800);
+	await page.reload({ waitUntil: 'networkidle' });
+	await page.waitForTimeout(1200);
+	const survivedCount = await page.locator('[data-testid^="armor-cov-0-"]').count();
+	expect('s11.5: 3 coverage rows persisted across reload', 3, survivedCount);
+	const torsoLoc = await page
+		.locator('[data-testid="armor-cov-location-0-0"]')
+		.inputValue();
+	expect('s11.5: torso slot location persisted', 'torso', torsoLoc);
+
+	// Remove the middle coverage
+	await page.locator('[data-testid="armor-cov-remove-0-1"]').click();
+	await page.waitForTimeout(800);
+	await page.reload({ waitUntil: 'networkidle' });
+	await page.waitForTimeout(1200);
+	const afterRemove = await page.locator('[data-testid^="armor-cov-0-"]').count();
+	expect('s11.5: removing one location drops the count', 2, afterRemove);
+
+	await ctx.close();
+}
+
+// =========================================================================
 // SECTION 12: Edit perks panel — add, rank up, remove
 // =========================================================================
 {
