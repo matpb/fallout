@@ -10,21 +10,46 @@ class PipBoyDB extends Dexie {
 		this.version(1).stores({
 			characters: 'id, name, originKey, level, updatedAt'
 		});
+		// v2: added weapons[], armor[], misterHandyVariant, misterHandyAttachments,
+		// vaultNumber, vaultExperiment. All optional / array defaults so old rows still load
+		// — we backfill at read time in normalizeCharacter() below.
+		this.version(2).stores({
+			characters: 'id, name, originKey, level, updatedAt'
+		});
 	}
 }
 
 export const db = new PipBoyDB();
 
+function normalizeCharacter(c: Character): Character {
+	// Idempotent backfill so v1 → v2 reads don't crash, and so a re-saved character
+	// upgrades its on-disk shape.
+	c.schemaVersion = 2;
+	if (!Array.isArray(c.weapons)) c.weapons = [];
+	if (!Array.isArray(c.armor)) c.armor = [];
+	// Mister Handy: backfill default loadout if origin is misterHandy but fields are missing
+	if (c.originKey === 'misterHandy') {
+		if (!c.misterHandyVariant) c.misterHandyVariant = 'misterHandy';
+		if (!Array.isArray(c.misterHandyAttachments) || c.misterHandyAttachments.length !== 3) {
+			c.misterHandyAttachments = ['pincer', 'flamer', 'laserEmitter'];
+		}
+	}
+	return c;
+}
+
 export async function listCharacters(): Promise<Character[]> {
-	return db.characters.orderBy('updatedAt').reverse().toArray();
+	const rows = await db.characters.orderBy('updatedAt').reverse().toArray();
+	return rows.map(normalizeCharacter);
 }
 
 export async function getCharacter(id: string): Promise<Character | undefined> {
-	return db.characters.get(id);
+	const c = await db.characters.get(id);
+	return c ? normalizeCharacter(c) : undefined;
 }
 
 export async function saveCharacter(c: Character): Promise<void> {
 	c.updatedAt = Date.now();
+	normalizeCharacter(c);
 	await db.characters.put(c);
 }
 

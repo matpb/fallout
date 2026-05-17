@@ -43,11 +43,72 @@ export type OriginKey =
 
 export type DamageType = 'physical' | 'energy' | 'radiation' | 'poison';
 
+// Mister Handy chassis variants (Core Rulebook p.76-77).
+// Each variant defines a fixed loadout of 3 arm attachments.
+export type MisterHandyVariant =
+	| 'misterHandy'
+	| 'misterGutsy'
+	| 'missNanny'
+	| 'misterFarmhand'
+	| 'nurseHandy';
+
+// Arm attachments (Core Rulebook p.55).
+export type ArmAttachment =
+	| 'pincer'
+	| 'buzzSaw'
+	| 'tenMmAutoPistol'
+	| 'laserEmitter'
+	| 'flamer';
+
+// Hit locations for armor coverage.
+export type BodyLocation =
+	| 'head'
+	| 'torso'
+	| 'leftArm'
+	| 'rightArm'
+	| 'leftLeg'
+	| 'rightLeg';
+
 export interface InventoryItem {
 	id: string;
 	name: string;
 	qty: number;
 	weight?: number;
+	notes?: string;
+}
+
+// Weapons get their own structured shape so the table at game time
+// can read damage CD, effects, range, ammo without rummaging in notes.
+export interface WeaponItem {
+	id: string;
+	name: string;
+	skill: SkillKey; // which skill rolls the attack
+	damageCD: number; // base Combat Dice
+	damageType: DamageType;
+	damageEffects: string; // free-text: "Vicious, Piercing 1, Burst" — book qualities vary
+	range: string; // "C / M / L / X" or "Close" / "Medium" / etc.
+	fireRate: number; // 0 for melee
+	ammo: string; // ammo type, e.g. "10mm", "5.56", "Fusion Cell" — blank for melee
+	ammoQty: number; // current loaded/owned count
+	qty: number; // weapon copies
+	weight: number;
+	mods?: string; // free-text mod list
+	notes?: string;
+}
+
+// Armor pieces protect one body location with per-damage-type DR.
+export interface ArmorPiece {
+	id: string;
+	name: string;
+	location: BodyLocation;
+	dr: {
+		physical: number;
+		energy: number;
+		radiation: number;
+		poison: number;
+	};
+	weight: number;
+	equipped: boolean;
 	notes?: string;
 }
 
@@ -58,7 +119,7 @@ export interface PerkPick {
 
 export interface Character {
 	id: string; // uuid
-	schemaVersion: 1;
+	schemaVersion: 2;
 	createdAt: number;
 	updatedAt: number;
 
@@ -78,12 +139,16 @@ export interface Character {
 	// Perks
 	perks: PerkPick[];
 
-	// Survivor traits (max 2) or Vault Dweller / origin trait notes
+	// Survivor traits (max 2) or Vault Dweller / origin trait notes.
+	// Note: Survivor's "1 trait + extra perk" path is encoded by traits.length === 1
+	// (with the 2nd perk pick reflected in perks[]).
 	traits: string[];
 
 	// Equipment
 	caps: number;
 	inventory: InventoryItem[];
+	weapons: WeaponItem[];
+	armor: ArmorPiece[];
 	trinket: string;
 
 	// HP
@@ -95,6 +160,12 @@ export interface Character {
 
 	// Power Armor frame STR override (when active)
 	powerArmorActive: boolean;
+
+	// Origin-specific fields
+	misterHandyVariant?: MisterHandyVariant;
+	misterHandyAttachments?: ArmAttachment[]; // length === 3
+	vaultNumber?: string; // Vault Dweller
+	vaultExperiment?: string; // Vault Dweller — once-per-quest complication reminder
 }
 
 export const SKILL_DEFAULT_ATTR: Record<SkillKey, SpecialKey> = {
@@ -282,3 +353,54 @@ export const SKILL_KEYS: SkillKey[] = [
 	'throwing',
 	'unarmed'
 ];
+
+export const BODY_LOCATIONS: BodyLocation[] = [
+	'head',
+	'torso',
+	'leftArm',
+	'rightArm',
+	'leftLeg',
+	'rightLeg'
+];
+
+export const BODY_LOCATION_LABELS: Record<BodyLocation, string> = {
+	head: 'Head',
+	torso: 'Torso',
+	leftArm: 'Left Arm',
+	rightArm: 'Right Arm',
+	leftLeg: 'Left Leg',
+	rightLeg: 'Right Leg'
+};
+
+// Mr. Handy attachment metadata (Core Rulebook p.55).
+export const ARM_ATTACHMENT_META: Record<
+	ArmAttachment,
+	{ label: string; effect: string; isPincer: boolean }
+> = {
+	pincer: {
+		label: 'Pincer',
+		effect:
+			'Manipulate objects (≤40 lbs each). Unarmed attack 2 CD physical. Required for Lockpick, Repair, Throwing.',
+		isPincer: true
+	},
+	buzzSaw: {
+		label: 'Buzz-Saw',
+		effect: 'Melee attack: 3 CD Piercing 1 physical.',
+		isPincer: false
+	},
+	tenMmAutoPistol: {
+		label: '10mm Auto Pistol',
+		effect: 'Ranged attack (10mm pistol with automatic receiver).',
+		isPincer: false
+	},
+	laserEmitter: {
+		label: 'Laser Emitter',
+		effect: 'Ranged attack (laser gun).',
+		isPincer: false
+	},
+	flamer: {
+		label: 'Flamer',
+		effect: 'Short-range ranged attack (flamer).',
+		isPincer: false
+	}
+};

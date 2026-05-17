@@ -1,19 +1,27 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { ORIGINS, ORIGIN_BY_KEY, SURVIVOR_TRAITS } from '$lib/fallout/origins';
+	import {
+		MISTER_HANDY_VARIANTS,
+		MISTER_HANDY_VARIANT_BY_KEY,
+		ORIGINS,
+		ORIGIN_BY_KEY,
+		SURVIVOR_TRAITS
+	} from '$lib/fallout/origins';
 	import { PERKS, PERKS_BY_KEY, CATEGORY_LABELS, type PerkCategory, type PerkDef } from '$lib/fallout/perks';
 	import {
+		ARM_ATTACHMENT_META,
 		SKILL_KEYS,
 		SKILL_LABELS,
 		SKILL_DESCRIPTIONS,
 		SKILL_DEFAULT_ATTR,
 		SPECIAL_KEYS,
 		SPECIAL_LABELS,
+		type MisterHandyVariant,
 		type OriginKey,
 		type SkillKey,
 		type SpecialKey
 	} from '$lib/fallout/types';
-	import { applyOriginToBase, createBlankCharacter } from '$lib/fallout/factory';
+	import { applyOriginToBase, createBlankCharacter, isSkillBlockedByOrigin } from '$lib/fallout/factory';
 	import { deriveAll, specialMaxFor } from '$lib/fallout/derived';
 	import { characters } from '$lib/store.svelte';
 
@@ -23,16 +31,31 @@
 
 	let origin = $derived(ORIGIN_BY_KEY[working.originKey]);
 
+	// Survivor "1 trait + extra perk" toggle (rulebook p.56).
+	// Off → pick exactly 2 survivor traits, 1 starting perk (default).
+	// On  → pick exactly 1 trait, pick 2 starting perks.
+	let survivorExtraPerk = $state(false);
+
 	function setOrigin(k: OriginKey) {
 		// Re-init keeping name
 		const name = working.name;
 		const fresh = createBlankCharacter(k);
 		fresh.name = name;
 		working = fresh;
+		// Reset survivor toggle when switching away from survivor
+		if (k !== 'survivor') survivorExtraPerk = false;
+		// Reset perk selection when origin changes
+		chosenPerkKey = '';
+		chosenPerkKey2 = '';
+	}
+
+	function setMisterHandyVariant(v: MisterHandyVariant) {
+		const def = MISTER_HANDY_VARIANT_BY_KEY[v];
+		working.misterHandyVariant = v;
+		working.misterHandyAttachments = [...def.attachments];
 	}
 
 	// SPECIAL — 5 points to spend over base 5 each
-	let specialBase = $derived(applyOriginToBase({ ...working }).special);
 	let specialSpent = $derived(
 		SPECIAL_KEYS.reduce((s, k) => s + Math.max(0, working.special[k] - 5), 0)
 	);
@@ -54,12 +77,13 @@
 	// Tag skill picks
 	let baseTagCount = $derived(3);
 	let originExtraTag = $derived(origin.extraTagSkill === 'any' ? 1 : 0);
-	let originLockedTag = $derived(working.originKey === 'ghoul' ? 1 : 0); // Survival auto-tag
 	let educatedExtra = $derived(working.traits.includes('educated') ? 1 : 0);
 	let brotherhoodNeed = $derived(origin.extraTagSkillFrom ? 1 : 0);
 	let totalTagAllowed = $derived(baseTagCount + originExtraTag + educatedExtra + brotherhoodNeed);
 
 	function toggleTag(k: SkillKey) {
+		// Mister Handy without a pincer can't tag Lockpick/Repair/Throwing
+		if (isSkillBlockedByOrigin(working, k)) return;
 		const i = working.tagSkills.indexOf(k);
 		if (i >= 0) {
 			// Don't allow removing the auto Ghoul Survival tag
@@ -86,34 +110,45 @@
 		}, 0)
 	);
 	let skillRemaining = $derived(skillBudget - skillSpent);
-	let skillRankCap = $derived(working.originKey === 'superMutant' ? 3 : 3); // creation cap = 3
+	let skillRankCap = $derived(3); // creation cap = 3 for everyone (Super Mutant overall cap is 4, but L1 cap is still 3)
 
 	function bumpSkill(k: SkillKey, dir: 1 | -1) {
+		if (isSkillBlockedByOrigin(working, k)) return;
 		const v = working.skills[k] + dir;
 		const tagBase = working.tagSkills.includes(k) ? 2 : 0;
-		const max = working.originKey === 'superMutant' ? Math.min(3, 4) : 3;
-		if (v < tagBase || v > max) return;
+		if (v < tagBase || v > skillRankCap) return;
 		if (dir === 1 && skillRemaining <= 0) return;
 		working.skills[k] = v;
 	}
 
-	// Survivor traits (max 2)
+	// Survivor traits (max 2, or 1 if extraPerk toggle on)
+	let survivorMaxTraits = $derived(survivorExtraPerk ? 1 : 2);
+
 	function toggleSurvivorTrait(key: string) {
 		const i = working.traits.indexOf(key);
 		if (i >= 0) {
 			working.traits.splice(i, 1);
 			working.traits = [...working.traits];
 		} else {
-			if (working.traits.length >= 2) return;
+			if (working.traits.length >= survivorMaxTraits) return;
 			working.traits.push(key);
 			working.traits = [...working.traits];
 		}
 	}
 
-	// Perk pick
+	// Whenever the survivor toggle flips, trim traits if needed
+	$effect(() => {
+		if (working.originKey === 'survivor' && working.traits.length > survivorMaxTraits) {
+			working.traits = working.traits.slice(0, survivorMaxTraits);
+		}
+	});
+
+	// Perk picks
 	let chosenPerkKey = $state<string>('');
+	let chosenPerkKey2 = $state<string>(''); // only used when survivor + extraPerk
 	let perkFilter = $state<'all' | PerkCategory>('all');
 	let showUnavailable = $state(true);
+	let needsTwoPerks = $derived(working.originKey === 'survivor' && survivorExtraPerk);
 
 	function unmetReason(p: PerkDef): string | null {
 		if (p.requirements.notRobot && working.originKey === 'misterHandy') return 'Not available to robots';
@@ -167,20 +202,31 @@
 	let derived_ = $derived(deriveAll(applyOriginToBase(working)));
 
 	function canAdvance(): boolean {
-		if (step === 1) return !!working.originKey && working.name.trim().length > 0;
+		if (step === 1) {
+			if (!working.originKey || working.name.trim().length === 0) return false;
+			// Mister Handy must have a variant picked (factory defaults to misterHandy, but allow overrides)
+			if (working.originKey === 'misterHandy' && !working.misterHandyVariant) return false;
+			return true;
+		}
 		if (step === 2) return specialRemaining === 0;
 		if (step === 3) {
-			if (working.originKey === 'survivor' && working.traits.length !== 2) return false;
+			if (working.originKey === 'survivor' && working.traits.length !== survivorMaxTraits) return false;
 			return working.tagSkills.length === totalTagAllowed && skillRemaining === 0;
 		}
-		if (step === 4) return chosenPerkKey !== '';
+		if (step === 4) {
+			if (chosenPerkKey === '') return false;
+			if (needsTwoPerks && (chosenPerkKey2 === '' || chosenPerkKey2 === chosenPerkKey)) return false;
+			return true;
+		}
 		return true;
 	}
 
 	function next() {
 		if (!canAdvance()) return;
-		if (step === 4 && chosenPerkKey) {
-			working.perks = [{ key: chosenPerkKey, rank: 1 }];
+		if (step === 4) {
+			const picks = [chosenPerkKey];
+			if (needsTwoPerks && chosenPerkKey2) picks.push(chosenPerkKey2);
+			working.perks = picks.map((k) => ({ key: k, rank: 1 }));
 		}
 		step = (step + 1) as Step;
 	}
@@ -274,6 +320,7 @@
 						{#each ORIGINS as o (o.key)}
 							<button
 								type="button"
+								data-testid={`origin-${o.key}`}
 								class="border-2 p-3 text-left transition {working.originKey === o.key
 									? 'border-[var(--color-pip-green)] bg-[rgba(21,255,96,0.08)]'
 									: 'border-[var(--color-pip-green-dim)] hover:border-[var(--color-pip-green)]'}"
@@ -296,6 +343,45 @@
 						</ul>
 					</div>
 				</div>
+
+				{#if working.originKey === 'misterHandy'}
+					<div class="pip-panel mt-2">
+						<div class="pip-panel-header">CHASSIS VARIANT — pick one</div>
+						<div class="space-y-1 p-3 text-xs opacity-80">
+							<p>
+								The 5 book variants come with fixed arm-attachment loadouts (Core Rulebook p.55, 76-77).
+								Pincer is what lets you use <em>Lockpick, Repair, and Throwing</em> — variants without
+								it are noted below.
+							</p>
+						</div>
+						<div class="grid gap-2 p-3 sm:grid-cols-2">
+							{#each MISTER_HANDY_VARIANTS as v (v.key)}
+								{@const selected = working.misterHandyVariant === v.key}
+								{@const hasPincer = v.attachments.includes('pincer')}
+								<button
+									type="button"
+									data-testid={`handy-variant-${v.key}`}
+									class="border-2 p-2 text-left transition {selected
+										? 'border-[var(--color-pip-green)] bg-[rgba(21,255,96,0.08)]'
+										: 'border-[var(--color-pip-green-dim)] hover:border-[var(--color-pip-green)]'}"
+									onclick={() => setMisterHandyVariant(v.key)}
+								>
+									<div class="pip-display pip-glow text-base">{v.name}</div>
+									<div class="text-[0.7rem] opacity-80">{v.persona}</div>
+									<div class="mt-1 text-xs">
+										<span class="opacity-60">Arms:</span>
+										{v.attachments.map((a) => ARM_ATTACHMENT_META[a].label).join(' · ')}
+									</div>
+									{#if !hasPincer}
+										<div class="pip-glow-amber mt-1 text-[0.7rem]">
+											⚠ No pincer — cannot use Lockpick / Repair / Throwing
+										</div>
+									{/if}
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			</div>
 		{:else if step === 2}
 			<div class="space-y-4">
@@ -377,7 +463,39 @@
 			<div class="space-y-4">
 				{#if working.originKey === 'survivor'}
 					<div>
-						<div class="text-xs opacity-70">SURVIVOR TRAITS — pick exactly 2</div>
+						<div class="text-xs opacity-70">
+							SURVIVOR — choose your path
+						</div>
+						<div class="mt-2 grid gap-2 sm:grid-cols-2">
+							<button
+								type="button"
+								data-testid="survivor-path-traits"
+								class="border-2 p-2 text-left text-xs transition {!survivorExtraPerk
+									? 'border-[var(--color-pip-green)] bg-[rgba(21,255,96,0.08)]'
+									: 'border-[var(--color-pip-green-dim)] hover:border-[var(--color-pip-green)]'}"
+								onclick={() => (survivorExtraPerk = false)}
+							>
+								<div class="pip-glow text-base">Two Traits</div>
+								<div class="opacity-80">Pick any 2 of the 5 survivor traits. Standard option.</div>
+							</button>
+							<button
+								type="button"
+								data-testid="survivor-path-perk"
+								class="border-2 p-2 text-left text-xs transition {survivorExtraPerk
+									? 'border-[var(--color-pip-green)] bg-[rgba(21,255,96,0.08)]'
+									: 'border-[var(--color-pip-green-dim)] hover:border-[var(--color-pip-green)]'}"
+								onclick={() => (survivorExtraPerk = true)}
+							>
+								<div class="pip-glow text-base">One Trait + Extra Perk</div>
+								<div class="opacity-80">Pick 1 trait, then pick 2 starting perks on step 4.</div>
+							</button>
+						</div>
+					</div>
+
+					<div>
+						<div class="text-xs opacity-70">
+							SURVIVOR TRAITS — pick exactly {survivorMaxTraits}
+						</div>
 						<div class="mt-2 grid gap-2 sm:grid-cols-2">
 							{#each SURVIVOR_TRAITS as t (t.key)}
 								{@const picked = working.traits.includes(t.key)}
@@ -443,23 +561,33 @@
 						SKILL POINTS — <span class="pip-glow">{skillRemaining}</span> / {skillBudget} remaining
 						(budget = 9 + INT, cap rank {skillRankCap} at level 1)
 					</div>
+					{#if working.originKey === 'misterHandy' && !working.misterHandyAttachments?.includes('pincer')}
+						<div class="pip-glow-amber mt-2 text-xs">
+							⚠ Your chosen chassis has no pincer attachment — Lockpick, Repair, and Throwing are
+							unavailable.
+						</div>
+					{/if}
 					<div class="mt-2 grid gap-2 sm:grid-cols-2">
 						{#each SKILL_KEYS as k (k)}
 							{@const isTag = working.tagSkills.includes(k)}
 							{@const tagBase = isTag ? 2 : 0}
 							{@const attr = SKILL_DEFAULT_ATTR[k]}
 							{@const tn = working.special[attr] + working.skills[k]}
+							{@const blocked = isSkillBlockedByOrigin(working, k)}
 							<div
-								class="border p-2 text-xs {isTag
-									? 'border-[var(--color-pip-amber)] bg-[rgba(255,176,0,0.05)]'
-									: 'border-[var(--color-pip-green-dim)]'}"
+								class="border p-2 text-xs {blocked
+									? 'border-[var(--color-pip-green-dim)] opacity-40'
+									: isTag
+										? 'border-[var(--color-pip-amber)] bg-[rgba(255,176,0,0.05)]'
+										: 'border-[var(--color-pip-green-dim)]'}"
 							>
 								<div class="flex items-center justify-between gap-2">
 									<button
 										type="button"
 										onclick={() => toggleTag(k)}
 										class="flex-1 text-left"
-										title="Click to toggle Tag"
+										disabled={blocked}
+										title={blocked ? 'Blocked — no pincer attachment' : 'Click to toggle Tag'}
 									>
 										<div class="pip-display text-base {isTag ? 'pip-glow-amber' : 'pip-glow'}">
 											{isTag ? '★' : '☐'} {SKILL_LABELS[k]}
@@ -472,17 +600,20 @@
 										<button
 											class="pip-btn px-2 py-0"
 											onclick={() => bumpSkill(k, -1)}
-											disabled={working.skills[k] <= tagBase}>-</button
+											disabled={blocked || working.skills[k] <= tagBase}>-</button
 										>
 										<span class="w-6 text-center">{working.skills[k]}</span>
 										<button
 											class="pip-btn px-2 py-0"
 											onclick={() => bumpSkill(k, 1)}
-											disabled={working.skills[k] >= skillRankCap || skillRemaining <= 0}>+</button
+											disabled={blocked || working.skills[k] >= skillRankCap || skillRemaining <= 0}>+</button
 										>
 									</div>
 								</div>
 								<div class="mt-1 text-[0.7rem] opacity-70">{SKILL_DESCRIPTIONS[k]}</div>
+								{#if blocked}
+									<div class="mt-1 text-[0.7rem] opacity-80">[ unavailable — no pincer ]</div>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -511,9 +642,12 @@
 				</details>
 
 				<div class="text-sm">
-					&gt; Pick your first perk. Currently chosen: <span class="pip-glow"
-						>{chosenPerkKey ? PERKS_BY_KEY[chosenPerkKey].name : '— none —'}</span
-					>
+					&gt; Pick your {needsTwoPerks ? '2 starting perks' : 'first perk'}. Currently chosen:
+					<span class="pip-glow">{chosenPerkKey ? PERKS_BY_KEY[chosenPerkKey].name : '— none —'}</span>
+					{#if needsTwoPerks}
+						<span class="opacity-70">+</span>
+						<span class="pip-glow">{chosenPerkKey2 ? PERKS_BY_KEY[chosenPerkKey2].name : '— none —'}</span>
+					{/if}
 				</div>
 
 				<div class="flex flex-wrap items-center gap-2 text-xs">
@@ -542,7 +676,9 @@
 					{#each visiblePerks as p (p.key)}
 						{@const reason = unmetReason(p)}
 						{@const ok = reason === null}
-						{@const selected = chosenPerkKey === p.key}
+						{@const isFirst = chosenPerkKey === p.key}
+						{@const isSecond = chosenPerkKey2 === p.key}
+						{@const selected = isFirst || isSecond}
 						<button
 							type="button"
 							disabled={!ok}
@@ -551,12 +687,32 @@
 								: ok
 									? 'border-[var(--color-pip-green-dim)] hover:border-[var(--color-pip-green)]'
 									: 'border-[var(--color-pip-green-dim)] opacity-40'}"
-							onclick={() => ok && (chosenPerkKey = p.key)}
+							onclick={() => {
+								if (!ok) return;
+								if (!needsTwoPerks) {
+									chosenPerkKey = p.key;
+									return;
+								}
+								// 2-perk mode: clicking cycles unset → first → second → cleared
+								if (isFirst) {
+									chosenPerkKey = '';
+								} else if (isSecond) {
+									chosenPerkKey2 = '';
+								} else if (chosenPerkKey === '') {
+									chosenPerkKey = p.key;
+								} else if (chosenPerkKey2 === '') {
+									chosenPerkKey2 = p.key;
+								} else {
+									chosenPerkKey2 = p.key;
+								}
+							}}
 						>
 							<div class="flex flex-wrap items-baseline justify-between gap-2">
 								<div class="pip-display pip-glow text-base">
 									{p.name}
 									<span class="opacity-60">({p.ranks} rank{p.ranks > 1 ? 's' : ''})</span>
+									{#if isFirst}<span class="pip-glow-amber text-xs">[pick #1]</span>{/if}
+									{#if isSecond}<span class="pip-glow-amber text-xs">[pick #2]</span>{/if}
 								</div>
 								<div class="text-xs">
 									{#if !ok}
@@ -589,6 +745,36 @@
 						placeholder="e.g. A pre-war gold pocket watch"
 					/>
 				</label>
+				{#if working.originKey === 'vaultDweller'}
+					<div class="pip-panel">
+						<div class="pip-panel-header">VAULT DETAILS</div>
+						<div class="space-y-3 p-3 text-xs">
+							<p class="opacity-80">
+								The once-per-quest "vault complication" reward needs a vault to react to. Note what
+								experiment your vault ran — your GM can riff on it later. (Core Rulebook p.56)
+							</p>
+							<label class="block">
+								<span class="opacity-70">VAULT NUMBER</span>
+								<input
+									class="pip-input mt-1"
+									data-testid="vault-number-input"
+									bind:value={working.vaultNumber}
+									placeholder="e.g. 111"
+									maxlength="6"
+								/>
+							</label>
+							<label class="block">
+								<span class="opacity-70">EXPERIMENT / EARLY-LIFE NOTE</span>
+								<textarea
+									class="pip-textarea mt-1 min-h-[5rem]"
+									data-testid="vault-experiment-input"
+									bind:value={working.vaultExperiment}
+									placeholder="e.g. Cryogenic stasis — frozen for 200 years and the only survivor of the freezing event."
+								></textarea>
+							</label>
+						</div>
+					</div>
+				{/if}
 				<label class="block">
 					<span class="text-xs opacity-70">STARTING CAPS</span>
 					<input class="pip-input mt-1" type="number" min="0" bind:value={working.caps} />
@@ -610,6 +796,14 @@
 						<div class="text-xs opacity-60">NAME / ORIGIN</div>
 						<div class="pip-display pip-glow text-lg">{working.name}</div>
 						<div>{origin.name}</div>
+						{#if working.originKey === 'misterHandy' && working.misterHandyVariant}
+							<div class="text-xs opacity-80">
+								Variant: {MISTER_HANDY_VARIANT_BY_KEY[working.misterHandyVariant].name}
+							</div>
+						{/if}
+						{#if working.originKey === 'vaultDweller' && working.vaultNumber}
+							<div class="text-xs opacity-80">Vault {working.vaultNumber}</div>
+						{/if}
 					</div>
 					<div class="border border-[var(--color-pip-green-dim)] p-3">
 						<div class="text-xs opacity-60">DERIVED</div>
@@ -640,9 +834,25 @@
 					</div>
 				</div>
 				<div class="border border-[var(--color-pip-green-dim)] p-3">
-					<div class="text-xs opacity-60">PERK</div>
-					<div>{chosenPerkKey ? PERKS_BY_KEY[chosenPerkKey].name : '(none)'}</div>
+					<div class="text-xs opacity-60">PERKS</div>
+					<div>
+						{working.perks.length
+							? working.perks
+									.map((p) => PERKS_BY_KEY[p.key]?.name ?? p.key)
+									.join(' · ')
+							: '(none)'}
+					</div>
 				</div>
+				{#if working.originKey === 'misterHandy' && working.misterHandyAttachments}
+					<div class="border border-[var(--color-pip-green-dim)] p-3">
+						<div class="text-xs opacity-60">ARM ATTACHMENTS</div>
+						<div>
+							{working.misterHandyAttachments
+								.map((a) => ARM_ATTACHMENT_META[a].label)
+								.join(' · ')}
+						</div>
+					</div>
+				{/if}
 			</div>
 		{/if}
 

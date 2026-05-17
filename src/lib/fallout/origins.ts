@@ -1,4 +1,4 @@
-import type { OriginKey, SkillKey } from './types';
+import type { ArmAttachment, MisterHandyVariant, OriginKey, SkillKey } from './types';
 
 export interface OriginDef {
 	key: OriginKey;
@@ -119,6 +119,72 @@ export interface SurvivorTraitDef {
 	benefit: string;
 	penalty: string;
 }
+
+// Mister Handy chassis variants — Core Rulebook p.76-77.
+// Each variant has a fixed loadout of 3 arm attachments and some flavor.
+export interface MisterHandyVariantDef {
+	key: MisterHandyVariant;
+	name: string;
+	persona: string;
+	attachments: ArmAttachment[]; // length 3
+	plating: string;
+	startingCaps: number;
+	extras: string[];
+}
+
+export const MISTER_HANDY_VARIANTS: MisterHandyVariantDef[] = [
+	{
+		key: 'misterHandy',
+		name: 'Mister Handy',
+		persona: 'Domestic butler. Stereotypical British masculine voice.',
+		attachments: ['pincer', 'flamer', 'laserEmitter'],
+		plating: 'Standard plating',
+		startingCaps: 10,
+		extras: ['Robot repair kit', 'Integral boiler mod']
+	},
+	{
+		key: 'misterGutsy',
+		name: 'Mister Gutsy',
+		persona: 'Military model. Drill-sergeant masculine voice. Heavier armor.',
+		attachments: ['tenMmAutoPistol', 'buzzSaw', 'laserEmitter'],
+		plating: 'Mister Gutsy plating',
+		startingCaps: 10,
+		extras: ['Recon sensors mod']
+	},
+	{
+		key: 'missNanny',
+		name: 'Miss Nanny',
+		persona: 'Caretaker / nanny. Feminine voice.',
+		attachments: ['pincer', 'flamer', 'buzzSaw'],
+		plating: 'Standard plating',
+		startingCaps: 10,
+		extras: ['Behavioral analysis mod', 'Hazard detection mod']
+	},
+	{
+		key: 'misterFarmhand',
+		name: 'Mister Farmhand',
+		persona: 'Farm helper. Stereotypically rural masculine voice.',
+		attachments: ['pincer', 'buzzSaw', 'laserEmitter'],
+		plating: 'Standard plating',
+		startingCaps: 25,
+		extras: ['One bag of fertilizer (1 uncommon material)', '2 mutfruits']
+	},
+	{
+		key: 'nurseHandy',
+		name: 'Nurse Handy',
+		persona: 'Medical model (Doctor Handy, MD. line). Masculine voice.',
+		attachments: ['pincer', 'buzzSaw', 'flamer'],
+		plating: 'Standard plating',
+		startingCaps: 10,
+		extras: ['Stimpak', 'Diagnosis mod']
+	}
+];
+
+export const MISTER_HANDY_VARIANT_BY_KEY: Record<MisterHandyVariant, MisterHandyVariantDef> =
+	Object.fromEntries(MISTER_HANDY_VARIANTS.map((v) => [v.key, v])) as Record<
+		MisterHandyVariant,
+		MisterHandyVariantDef
+	>;
 
 export const SURVIVOR_TRAITS: SurvivorTraitDef[] = [
 	{

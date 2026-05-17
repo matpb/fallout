@@ -1,4 +1,5 @@
-import type { Character, SpecialKey } from './types';
+import type { BodyLocation, Character, DamageType, SpecialKey } from './types';
+import { BODY_LOCATIONS } from './types';
 import { ORIGIN_BY_KEY } from './origins';
 
 export interface DerivedStats {
@@ -92,5 +93,32 @@ export function deriveAll(c: Character): DerivedStats {
 }
 
 export function inventoryWeight(c: Character): number {
-	return c.inventory.reduce((s, i) => s + (i.weight ?? 0) * (i.qty ?? 1), 0);
+	const inv = c.inventory.reduce((s, i) => s + (i.weight ?? 0) * (i.qty ?? 1), 0);
+	const weapons = (c.weapons ?? []).reduce(
+		(s, w) => s + (w.weight ?? 0) * (w.qty ?? 1),
+		0
+	);
+	const armor = (c.armor ?? []).reduce((s, a) => s + (a.weight ?? 0), 0);
+	return inv + weapons + armor;
+}
+
+// Total damage resistance per location, summed across equipped armor pieces.
+// Useful to render the armor matrix and warn about uncovered locations.
+export type ArmorMatrix = Record<BodyLocation, Record<DamageType, number>>;
+
+export function armorMatrix(c: Character): ArmorMatrix {
+	const out: ArmorMatrix = {} as ArmorMatrix;
+	for (const loc of BODY_LOCATIONS) {
+		out[loc] = { physical: 0, energy: 0, radiation: 0, poison: 0 };
+	}
+	for (const piece of c.armor ?? []) {
+		if (!piece.equipped) continue;
+		const row = out[piece.location];
+		if (!row) continue;
+		row.physical += piece.dr.physical || 0;
+		row.energy += piece.dr.energy || 0;
+		row.radiation += piece.dr.radiation || 0;
+		row.poison += piece.dr.poison || 0;
+	}
+	return out;
 }

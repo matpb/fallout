@@ -3,23 +3,43 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { characters } from '$lib/store.svelte';
-	import { ORIGIN_BY_KEY } from '$lib/fallout/origins';
-	import { PERKS_BY_KEY } from '$lib/fallout/perks';
-	import { applyOriginToBase, isTagSkill } from '$lib/fallout/factory';
-	import { deriveAll, inventoryWeight } from '$lib/fallout/derived';
 	import {
+		MISTER_HANDY_VARIANTS,
+		MISTER_HANDY_VARIANT_BY_KEY,
+		ORIGIN_BY_KEY
+	} from '$lib/fallout/origins';
+	import { PERKS, PERKS_BY_KEY, type PerkDef } from '$lib/fallout/perks';
+	import { applyOriginToBase, isSkillBlockedByOrigin, isTagSkill } from '$lib/fallout/factory';
+	import { armorMatrix, deriveAll, inventoryWeight } from '$lib/fallout/derived';
+	import { canLevelUp, xpForLevel, xpToNextLevel } from '$lib/fallout/levelUp';
+	import {
+		ARM_ATTACHMENT_META,
+		BODY_LOCATIONS,
+		BODY_LOCATION_LABELS,
 		SKILL_KEYS,
 		SKILL_LABELS,
 		SKILL_DEFAULT_ATTR,
 		SPECIAL_KEYS,
 		SPECIAL_LABELS,
-		type Character
+		type ArmAttachment,
+		type ArmorPiece,
+		type BodyLocation,
+		type Character,
+		type DamageType,
+		type MisterHandyVariant,
+		type SkillKey,
+		type WeaponItem
 	} from '$lib/fallout/types';
 	import { v4 as uuid } from 'uuid';
 
 	let character = $state<Character | null>(null);
 	let editingName = $state(false);
 	let saving = $state(false);
+
+	// Level-up wizard state
+	let levelUpOpen = $state(false);
+	let levelUpSkill = $state<SkillKey | ''>('');
+	let levelUpPerkKey = $state<string>('');
 
 	$effect(() => {
 		const id = page.params.id;
@@ -41,6 +61,54 @@
 	let derived_ = $derived(character ? deriveAll(applyOriginToBase(character)) : null);
 	let invWeight = $derived(character ? inventoryWeight(character) : 0);
 	let invOver = $derived(derived_ && invWeight > derived_.carryWeight);
+	let armorByLocation = $derived(character ? armorMatrix(character) : null);
+	let handyVariantDef = $derived(
+		character?.misterHandyVariant
+			? MISTER_HANDY_VARIANT_BY_KEY[character.misterHandyVariant]
+			: null
+	);
+	let hasPincer = $derived(character?.misterHandyAttachments?.includes('pincer') ?? false);
+
+	// XP / level helpers
+	let nextLevel = $derived(character ? character.level + 1 : 2);
+	let xpNeededNext = $derived(character ? xpForLevel(nextLevel) : 0);
+	let xpToNext = $derived(
+		character ? xpToNextLevel(character.level, character.xp) : 0
+	);
+	let canLvl = $derived(character ? canLevelUp(character.level, character.xp) : false);
+	let postLevelSkillCap = $derived(character?.originKey === 'superMutant' ? 4 : 6);
+
+	// Perks available on level-up (gating on requirements at the would-be level)
+	function perkUnmet(p: PerkDef, asLevel: number): string | null {
+		if (!character) return 'no character';
+		if (p.requirements.notRobot && character.originKey === 'misterHandy') return 'Not available to robots';
+		if (p.requirements.level && asLevel < p.requirements.level) {
+			return `Needs Level ${p.requirements.level}`;
+		}
+		if (p.requirements.special) {
+			const final = applyOriginToBase(character).special;
+			const missing: string[] = [];
+			for (const [k, min] of Object.entries(p.requirements.special)) {
+				const cur = final[k as keyof typeof final];
+				if (cur < (min as number)) {
+					missing.push(`${SPECIAL_LABELS[k as keyof typeof final].short} ${cur}/${min}`);
+				}
+			}
+			if (missing.length) return `Needs ${missing.join(', ')}`;
+		}
+		// Existing perk: can only rank-up if rank < ranks
+		const existing = character.perks.find((pp) => pp.key === p.key);
+		if (existing && existing.rank >= p.ranks) return 'Maxed';
+		return null;
+	}
+
+	let levelUpPerksAvailable = $derived(
+		character
+			? PERKS.filter((p) => perkUnmet(p, nextLevel) === null).sort((a, b) =>
+					a.name.localeCompare(b.name)
+				)
+			: []
+	);
 
 	async function save() {
 		if (!character) return;
@@ -72,9 +140,103 @@
 		character.inventory = character.inventory.filter((i) => i.id !== id);
 	}
 
+	function addWeapon() {
+		if (!character) return;
+		const newWeapon: WeaponItem = {
+			id: uuid(),
+			name: '',
+			skill: 'smallGuns',
+			damageCD: 1,
+			damageType: 'physical',
+			damageEffects: '',
+			range: 'M',
+			fireRate: 0,
+			ammo: '',
+			ammoQty: 0,
+			qty: 1,
+			weight: 0,
+			mods: '',
+			notes: ''
+		};
+		character.weapons = [...character.weapons, newWeapon];
+	}
+
+	function removeWeapon(id: string) {
+		if (!character) return;
+		character.weapons = character.weapons.filter((w) => w.id !== id);
+	}
+
+	function addArmor() {
+		if (!character) return;
+		const piece: ArmorPiece = {
+			id: uuid(),
+			name: '',
+			location: 'torso',
+			dr: { physical: 0, energy: 0, radiation: 0, poison: 0 },
+			weight: 0,
+			equipped: true,
+			notes: ''
+		};
+		character.armor = [...character.armor, piece];
+	}
+
+	function removeArmor(id: string) {
+		if (!character) return;
+		character.armor = character.armor.filter((a) => a.id !== id);
+	}
+
+	function setHandyVariant(v: MisterHandyVariant) {
+		if (!character) return;
+		const def = MISTER_HANDY_VARIANT_BY_KEY[v];
+		character.misterHandyVariant = v;
+		character.misterHandyAttachments = [...def.attachments];
+	}
+
 	function clamp(n: number, lo: number, hi: number): number {
 		return Math.max(lo, Math.min(hi, n));
 	}
+
+	function openLevelUp() {
+		levelUpSkill = '';
+		levelUpPerkKey = '';
+		levelUpOpen = true;
+	}
+
+	async function applyLevelUp() {
+		if (!character || !levelUpSkill || !levelUpPerkKey) return;
+		// +1 skill rank (clamped to cap)
+		const cap = postLevelSkillCap;
+		character.skills[levelUpSkill] = Math.min(cap, character.skills[levelUpSkill] + 1);
+		// Perk: rank up if existing else add at rank 1
+		const existingIdx = character.perks.findIndex((p) => p.key === levelUpPerkKey);
+		if (existingIdx >= 0) {
+			character.perks[existingIdx].rank += 1;
+			character.perks = [...character.perks];
+		} else {
+			character.perks = [...character.perks, { key: levelUpPerkKey, rank: 1 }];
+		}
+		// Level up
+		character.level += 1;
+		// Heal to new max HP on level-up (rulebook doesn't mandate but it's the convention)
+		const d = deriveAll(applyOriginToBase(character));
+		character.currentHp = d.maxHp;
+		await save();
+		levelUpOpen = false;
+	}
+
+	// Super mutant armor warning: only Raider armor fits.
+	function isUnfitArmorForSuperMutant(piece: ArmorPiece): boolean {
+		if (!character || character.originKey !== 'superMutant') return false;
+		return !/\braider\b/i.test(piece.name);
+	}
+
+	const DAMAGE_TYPES: DamageType[] = ['physical', 'energy', 'radiation', 'poison'];
+	const DAMAGE_TYPE_LABELS: Record<DamageType, string> = {
+		physical: 'PHYS',
+		energy: 'ENRG',
+		radiation: 'RAD',
+		poison: 'PSN'
+	};
 </script>
 
 <svelte:head>
@@ -112,9 +274,18 @@
 						>
 					{/if}
 					<div class="text-sm">
-						<span class="opacity-70">Origin:</span> {origin.name}
+						<span class="opacity-70">Origin:</span> {origin.name}{#if character.originKey === 'misterHandy' && handyVariantDef}
+							<span class="opacity-60"> · {handyVariantDef.name}</span>
+						{/if}
 					</div>
 				</div>
+
+				{#if character.originKey === 'superMutant'}
+					<div class="pip-glow-amber border border-[var(--color-pip-amber)] p-2 text-xs">
+						⚠ SUPER MUTANT — only Raider armor fits this frame (Core Rulebook p.83). Other armor
+						pieces below will show a warning.
+					</div>
+				{/if}
 
 				<div class="grid grid-cols-2 gap-2 sm:grid-cols-4 no-print">
 					<label class="text-xs">
@@ -131,7 +302,7 @@
 						/>
 					</label>
 					<label class="text-xs">
-						<span class="opacity-70">XP</span>
+						<span class="opacity-70">XP {xpToNext > 0 ? `(${xpToNext} → L${nextLevel})` : '(maxed for table)'}</span>
 						<input class="pip-input" data-testid="xp-input" type="number" min="0" bind:value={character.xp} />
 					</label>
 					<label class="text-xs">
@@ -168,6 +339,23 @@
 								))}
 						/>
 					</label>
+				</div>
+
+				<div class="flex items-center gap-2 no-print">
+					<button
+						class="pip-btn"
+						class:pip-glow-amber={canLvl}
+						data-testid="levelup-btn"
+						disabled={!canLvl}
+						onclick={openLevelUp}
+					>
+						[ ↑ ] LEVEL UP
+					</button>
+					{#if !canLvl}
+						<span class="text-xs opacity-70">need {xpToNext} more XP for L{nextLevel}</span>
+					{:else}
+						<span class="pip-glow-amber text-xs">ready for L{nextLevel}</span>
+					{/if}
 				</div>
 			</div>
 		</section>
@@ -225,6 +413,90 @@
 			</div>
 		</section>
 
+		<!-- Vault Dweller info -->
+		{#if character.originKey === 'vaultDweller'}
+			<section class="pip-panel" data-testid="vault-panel">
+				<div class="pip-panel-header">VAULT-TEC FILE</div>
+				<div class="grid gap-3 p-4 text-sm sm:grid-cols-3 sm:p-6">
+					<label class="text-xs sm:col-span-1">
+						<span class="opacity-70">VAULT #</span>
+						<input
+							class="pip-input mt-1"
+							data-testid="vault-number-edit"
+							bind:value={character.vaultNumber}
+							maxlength="6"
+						/>
+					</label>
+					<label class="text-xs sm:col-span-2">
+						<span class="opacity-70"
+							>EXPERIMENT / EARLY-LIFE NOTE — once per quest the GM may introduce a complication
+							based on this, and you regain 1 Luck Point</span
+						>
+						<textarea
+							class="pip-textarea mt-1 min-h-[4rem]"
+							data-testid="vault-experiment-edit"
+							bind:value={character.vaultExperiment}
+						></textarea>
+					</label>
+				</div>
+			</section>
+		{/if}
+
+		<!-- Mr. Handy chassis -->
+		{#if character.originKey === 'misterHandy'}
+			<section class="pip-panel" data-testid="handy-panel">
+				<div class="pip-panel-header">MR. HANDY CHASSIS</div>
+				<div class="space-y-3 p-4 sm:p-6">
+					<div class="text-xs opacity-80">
+						3 arm attachments determine your combat options + skill access.
+						{#if !hasPincer}
+							<span class="pip-glow-amber">No pincer ⟹ Lockpick, Repair, and Throwing are unavailable.</span>
+						{/if}
+					</div>
+
+					<div>
+						<div class="text-xs opacity-70">VARIANT</div>
+						<div class="mt-2 grid gap-2 sm:grid-cols-2">
+							{#each MISTER_HANDY_VARIANTS as v (v.key)}
+								{@const selected = character.misterHandyVariant === v.key}
+								<button
+									type="button"
+									data-testid={`handy-variant-edit-${v.key}`}
+									class="border-2 p-2 text-left text-xs transition {selected
+										? 'border-[var(--color-pip-green)] bg-[rgba(21,255,96,0.08)]'
+										: 'border-[var(--color-pip-green-dim)] hover:border-[var(--color-pip-green)]'}"
+									onclick={() => setHandyVariant(v.key)}
+								>
+									<div class="pip-display pip-glow text-base">{v.name}</div>
+									<div class="opacity-80">{v.persona}</div>
+									<div class="mt-1">
+										<span class="opacity-60">Arms:</span>
+										{v.attachments.map((a) => ARM_ATTACHMENT_META[a].label).join(' · ')}
+									</div>
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<div>
+						<div class="text-xs opacity-70">ARM ATTACHMENTS</div>
+						<ul class="mt-2 space-y-1 text-sm" data-testid="handy-attachments">
+							{#each character.misterHandyAttachments ?? [] as att, i (i)}
+								<li class="border border-[var(--color-pip-green-dim)] p-2">
+									<div class="pip-display pip-glow text-base">
+										ARM {i + 1}: {ARM_ATTACHMENT_META[att as ArmAttachment].label}
+									</div>
+									<div class="text-xs opacity-80">
+										{ARM_ATTACHMENT_META[att as ArmAttachment].effect}
+									</div>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				</div>
+			</section>
+		{/if}
+
 		<!-- Skills -->
 		<section class="pip-panel">
 			<div class="pip-panel-header">SKILLS</div>
@@ -233,26 +505,31 @@
 					{@const tag = isTagSkill(character, k)}
 					{@const attr = SKILL_DEFAULT_ATTR[k]}
 					{@const tn = applyOriginToBase(character).special[attr] + character.skills[k]}
+					{@const blocked = isSkillBlockedByOrigin(character, k)}
 					<div
-						class="flex items-center justify-between border-b border-[var(--color-pip-green-dim)] py-1 text-sm"
+						class="flex items-center justify-between border-b border-[var(--color-pip-green-dim)] py-1 text-sm {blocked
+							? 'opacity-40'
+							: ''}"
 					>
 						<div class="flex items-center gap-2">
 							<span class="w-3 {tag ? 'pip-glow-amber' : 'opacity-30'}">{tag ? '★' : ' '}</span>
 							<span>{SKILL_LABELS[k]}</span>
 							<span class="text-xs opacity-60">[{SPECIAL_LABELS[attr].short}]</span>
+							{#if blocked}<span class="text-xs opacity-70">[no pincer]</span>{/if}
 						</div>
 						<div class="flex items-center gap-2 font-mono">
 							<input
 								class="pip-input w-12 text-center"
 								type="number"
 								min="0"
-								max="6"
+								max={postLevelSkillCap}
 								value={character.skills[k]}
+								disabled={blocked}
 								onchange={(e) =>
 									(character!.skills[k] = clamp(
 										parseInt((e.target as HTMLInputElement).value) || 0,
 										0,
-										6
+										postLevelSkillCap
 									))}
 							/>
 							<span class="pip-glow w-10 text-right">TN {tn}</span>
@@ -294,6 +571,278 @@
 							{/each}
 						</ul>
 					</div>
+				{/if}
+			</div>
+		</section>
+
+		<!-- Weapons -->
+		<section class="pip-panel">
+			<div class="pip-panel-header flex items-center justify-between">
+				<span>WEAPONS</span>
+				<button class="text-xs underline no-print" data-testid="weapon-add" onclick={addWeapon}
+					>[ + add weapon ]</button
+				>
+			</div>
+			<div class="space-y-3 p-4 sm:p-6" data-testid="weapons-list">
+				{#if character.weapons.length === 0}
+					<p class="text-sm opacity-70">[ unarmed ]</p>
+				{/if}
+				{#each character.weapons as w, i (w.id)}
+					{@const skillAttr = SKILL_DEFAULT_ATTR[w.skill]}
+					{@const skillRank = character.skills[w.skill]}
+					{@const finalSpecial = applyOriginToBase(character).special}
+					{@const weaponTn = finalSpecial[skillAttr] + skillRank}
+					<div
+						class="grid grid-cols-12 gap-1 border border-[var(--color-pip-green-dim)] p-2 text-xs"
+						data-testid={`weapon-row-${i}`}
+					>
+						<input
+							class="pip-input col-span-6 sm:col-span-4"
+							placeholder="Name (e.g. 10mm Pistol)"
+							data-testid={`weapon-name-${i}`}
+							bind:value={w.name}
+						/>
+						<label class="col-span-6 sm:col-span-2 text-[0.7rem]">
+							<span class="opacity-70">SKILL</span>
+							<select class="pip-input pip-select" bind:value={w.skill}>
+								{#each SKILL_KEYS as sk (sk)}
+									<option value={sk}>{SKILL_LABELS[sk]}</option>
+								{/each}
+							</select>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">CD</span>
+							<input
+								class="pip-input"
+								type="number"
+								min="0"
+								max="20"
+								bind:value={w.damageCD}
+							/>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">TYPE</span>
+							<select class="pip-input pip-select" bind:value={w.damageType}>
+								<option value="physical">Phys</option>
+								<option value="energy">Enrg</option>
+								<option value="radiation">Rad</option>
+								<option value="poison">Psn</option>
+							</select>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">RANGE</span>
+							<input
+								class="pip-input"
+								placeholder="C/M/L/X"
+								bind:value={w.range}
+							/>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">FR</span>
+							<input
+								class="pip-input"
+								type="number"
+								min="0"
+								max="6"
+								bind:value={w.fireRate}
+							/>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">QTY</span>
+							<input
+								class="pip-input"
+								type="number"
+								min="1"
+								bind:value={w.qty}
+							/>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">LBS</span>
+							<input
+								class="pip-input"
+								type="number"
+								min="0"
+								step="0.1"
+								bind:value={w.weight}
+							/>
+						</label>
+						<label class="col-span-6 sm:col-span-3 text-[0.7rem]">
+							<span class="opacity-70">AMMO</span>
+							<input class="pip-input" placeholder="10mm, fusion cell, …" bind:value={w.ammo} />
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">#</span>
+							<input
+								class="pip-input"
+								type="number"
+								min="0"
+								bind:value={w.ammoQty}
+							/>
+						</label>
+						<label class="col-span-9 sm:col-span-5 text-[0.7rem]">
+							<span class="opacity-70">EFFECTS / QUALITIES</span>
+							<input
+								class="pip-input"
+								placeholder="Vicious, Piercing 1, Burst, Two-Handed…"
+								bind:value={w.damageEffects}
+							/>
+						</label>
+						<label class="col-span-9 sm:col-span-2 text-[0.7rem]">
+							<span class="opacity-70">MODS</span>
+							<input
+								class="pip-input"
+								placeholder="Long barrel, recoil comp"
+								bind:value={w.mods}
+							/>
+						</label>
+						<div class="col-span-12 flex items-center justify-between gap-2 pt-1 text-[0.7rem]">
+							<div class="opacity-80">
+								Rolls <span class="pip-glow">{SPECIAL_LABELS[skillAttr].short} + {SKILL_LABELS[w.skill]}</span>
+								— TN <span class="pip-glow">{weaponTn}</span>, damage <span class="pip-glow">{w.damageCD} CD {w.damageType}</span>
+							</div>
+							<button
+								class="pip-btn pip-btn-danger px-2 py-0 text-center no-print"
+								data-testid={`weapon-remove-${i}`}
+								onclick={() => removeWeapon(w.id)}>X</button
+							>
+						</div>
+					</div>
+				{/each}
+			</div>
+		</section>
+
+		<!-- Armor -->
+		<section class="pip-panel">
+			<div class="pip-panel-header flex items-center justify-between">
+				<span>ARMOR</span>
+				<button class="text-xs underline no-print" data-testid="armor-add" onclick={addArmor}
+					>[ + add armor ]</button
+				>
+			</div>
+			<div class="space-y-3 p-4 sm:p-6" data-testid="armor-list">
+				{#if character.armor.length === 0}
+					<p class="text-sm opacity-70">[ unarmored ]</p>
+				{/if}
+				{#each character.armor as a, i (a.id)}
+					{@const warn = isUnfitArmorForSuperMutant(a)}
+					<div
+						class="grid grid-cols-12 gap-1 border p-2 text-xs {warn
+							? 'border-[var(--color-pip-amber)]'
+							: 'border-[var(--color-pip-green-dim)]'}"
+						data-testid={`armor-row-${i}`}
+					>
+						<input
+							class="pip-input col-span-6 sm:col-span-3"
+							placeholder="Piece (e.g. Combat Armor Torso)"
+							data-testid={`armor-name-${i}`}
+							bind:value={a.name}
+						/>
+						<label class="col-span-6 sm:col-span-2 text-[0.7rem]">
+							<span class="opacity-70">LOCATION</span>
+							<select class="pip-input pip-select" bind:value={a.location}>
+								{#each BODY_LOCATIONS as loc (loc)}
+									<option value={loc}>{BODY_LOCATION_LABELS[loc]}</option>
+								{/each}
+							</select>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">PHY</span>
+							<input
+								class="pip-input"
+								type="number"
+								min="0"
+								bind:value={a.dr.physical}
+							/>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">ENR</span>
+							<input
+								class="pip-input"
+								type="number"
+								min="0"
+								bind:value={a.dr.energy}
+							/>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">RAD</span>
+							<input
+								class="pip-input"
+								type="number"
+								min="0"
+								bind:value={a.dr.radiation}
+							/>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">PSN</span>
+							<input
+								class="pip-input"
+								type="number"
+								min="0"
+								bind:value={a.dr.poison}
+							/>
+						</label>
+						<label class="col-span-3 sm:col-span-1 text-[0.7rem]">
+							<span class="opacity-70">LBS</span>
+							<input
+								class="pip-input"
+								type="number"
+								min="0"
+								step="0.1"
+								bind:value={a.weight}
+							/>
+						</label>
+						<label class="col-span-6 sm:col-span-1 flex items-center gap-1 text-[0.7rem]">
+							<input type="checkbox" bind:checked={a.equipped} />
+							<span>Worn</span>
+						</label>
+						<div class="col-span-12 flex items-center justify-between gap-2 pt-1 text-[0.7rem]">
+							<div class="opacity-80">
+								{#if warn}
+									<span class="pip-glow-amber">⚠ Super mutants can only wear Raider armor (rename to include "Raider" if intentional).</span>
+								{:else}
+									<span class="opacity-60">{a.notes ?? ''}</span>
+								{/if}
+							</div>
+							<button
+								class="pip-btn pip-btn-danger px-2 py-0 text-center no-print"
+								data-testid={`armor-remove-${i}`}
+								onclick={() => removeArmor(a.id)}>X</button
+							>
+						</div>
+					</div>
+				{/each}
+
+				{#if armorByLocation}
+					<details class="border border-[var(--color-pip-green-dim)] p-2 text-xs">
+						<summary class="cursor-pointer">[ ? ] Total DR by location (equipped only)</summary>
+						<table class="mt-2 w-full border-collapse text-center">
+							<thead>
+								<tr class="opacity-70">
+									<th class="border border-[var(--color-pip-green-dim)] p-1 text-left">Location</th>
+									{#each DAMAGE_TYPES as dt (dt)}
+										<th class="border border-[var(--color-pip-green-dim)] p-1">{DAMAGE_TYPE_LABELS[dt]}</th>
+									{/each}
+								</tr>
+							</thead>
+							<tbody>
+								{#each BODY_LOCATIONS as loc (loc)}
+									<tr>
+										<td class="border border-[var(--color-pip-green-dim)] p-1 text-left">
+											{BODY_LOCATION_LABELS[loc]}
+										</td>
+										{#each DAMAGE_TYPES as dt (dt)}
+											{@const v = armorByLocation[loc][dt]}
+											<td
+												class="border border-[var(--color-pip-green-dim)] p-1 {v > 0
+													? 'pip-glow'
+													: 'opacity-40'}">{v}</td
+											>
+										{/each}
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</details>
 				{/if}
 			</div>
 		</section>
@@ -357,4 +906,99 @@
 			<button class="pip-btn pip-btn-danger ml-auto" data-testid="delete-btn" onclick={remove}>[ X ] Delete</button>
 		</div>
 	</div>
+
+	<!-- Level-up modal -->
+	{#if levelUpOpen}
+		<div
+			class="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto bg-black/80 p-4 no-print"
+			data-testid="levelup-modal"
+		>
+			<div class="pip-panel my-8 w-full max-w-2xl">
+				<div class="pip-panel-header flex items-center justify-between">
+					<span>LEVEL UP → L{nextLevel}</span>
+					<button
+						class="text-xs underline"
+						data-testid="levelup-close"
+						onclick={() => (levelUpOpen = false)}>[ × close ]</button
+					>
+				</div>
+				<div class="space-y-4 p-4 sm:p-6">
+					<div class="text-xs opacity-80">
+						Per the rulebook (Core Rulebook p.74-75), each level grants <span class="pip-glow">+1 max HP</span>
+						(auto-applied via the HP formula), <span class="pip-glow">+1 skill rank</span> in a skill of
+						your choice (cap {postLevelSkillCap}), and <span class="pip-glow">1 perk</span> — new or rank-up.
+					</div>
+
+					<div>
+						<div class="text-xs opacity-70">PICK A SKILL TO RAISE BY +1</div>
+						<div class="mt-2 grid gap-1 sm:grid-cols-2">
+							{#each SKILL_KEYS as k (k)}
+								{@const blocked = isSkillBlockedByOrigin(character, k)}
+								{@const cur = character.skills[k]}
+								{@const atCap = cur >= postLevelSkillCap}
+								<button
+									type="button"
+									data-testid={`levelup-skill-${k}`}
+									disabled={blocked || atCap}
+									class="border p-1 text-left text-xs transition {levelUpSkill === k
+										? 'border-[var(--color-pip-green)] bg-[rgba(21,255,96,0.08)]'
+										: blocked || atCap
+											? 'border-[var(--color-pip-green-dim)] opacity-40'
+											: 'border-[var(--color-pip-green-dim)] hover:border-[var(--color-pip-green)]'}"
+									onclick={() => (levelUpSkill = k)}
+								>
+									{SKILL_LABELS[k]} <span class="opacity-60">({cur} → {Math.min(cur + 1, postLevelSkillCap)})</span>
+									{#if blocked}<span class="opacity-70"> [no pincer]</span>{/if}
+									{#if atCap}<span class="pip-glow-amber"> [max]</span>{/if}
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<div>
+						<div class="text-xs opacity-70">PICK A PERK (new or rank-up)</div>
+						<div class="mt-2 max-h-72 overflow-y-auto border border-[var(--color-pip-green-dim)] p-1">
+							{#if levelUpPerksAvailable.length === 0}
+								<p class="p-2 text-xs opacity-70">[ no perks currently meet your requirements ]</p>
+							{/if}
+							{#each levelUpPerksAvailable as p (p.key)}
+								{@const existing = character.perks.find((pp) => pp.key === p.key)}
+								<button
+									type="button"
+									data-testid={`levelup-perk-${p.key}`}
+									class="block w-full border-b border-[var(--color-pip-green-dim)] p-2 text-left text-xs transition {levelUpPerkKey ===
+									p.key
+										? 'bg-[rgba(21,255,96,0.12)]'
+										: 'hover:bg-[rgba(21,255,96,0.05)]'}"
+									onclick={() => (levelUpPerkKey = p.key)}
+								>
+									<div class="pip-display pip-glow text-base">
+										{p.name}
+										{#if existing}
+											<span class="opacity-60">(rank {existing.rank} → {existing.rank + 1})</span>
+										{:else}
+											<span class="opacity-60">(new)</span>
+										{/if}
+									</div>
+									<div class="opacity-80">{p.text}</div>
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<div class="flex items-center justify-end gap-2">
+						<button class="pip-btn" onclick={() => (levelUpOpen = false)}>Cancel</button>
+						<button
+							class="pip-btn pip-glow-amber"
+							data-testid="levelup-confirm"
+							disabled={!levelUpSkill || !levelUpPerkKey}
+							onclick={applyLevelUp}
+						>
+							[ ✓ ] Confirm Level Up
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
 {/if}
