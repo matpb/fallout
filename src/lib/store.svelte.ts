@@ -1,6 +1,7 @@
 // Reactive Svelte 5 stores wrapping Dexie.
 
 import { browser } from '$app/environment';
+import { CloudConflictError, pushIfDirty } from './cloud';
 import type { Character } from './fallout/types';
 import {
 	db,
@@ -8,6 +9,32 @@ import {
 	listCharacters as dbList,
 	saveCharacter as dbSave
 } from './db';
+
+// Reactive view of the last cloud-sync result for any character — surfaced in
+// the UI so users see "synced", "syncing…", or "conflict — server has a newer
+// copy". One slot per character id is enough; concurrent edits to two
+// characters are rare in this app.
+export type CloudSyncStatus =
+	| { kind: 'idle' }
+	| { kind: 'syncing' }
+	| { kind: 'synced'; at: number }
+	| { kind: 'conflict'; serverPayload: string; serverUpdatedAt: number }
+	| { kind: 'error'; message: string };
+
+class CloudSyncStore {
+	state = $state<Record<string, CloudSyncStatus>>({});
+	set(id: string, s: CloudSyncStatus) {
+		this.state[id] = s;
+	}
+	get(id: string): CloudSyncStatus {
+		return this.state[id] ?? { kind: 'idle' };
+	}
+	clear(id: string) {
+		delete this.state[id];
+	}
+}
+
+export const cloudSync = new CloudSyncStore();
 
 interface CharacterStore {
 	loaded: boolean;
@@ -30,6 +57,7 @@ class CharactersStore {
 		// produces a plain object that Dexie writes successfully.
 		const plain = JSON.parse(JSON.stringify(c)) as Character;
 		await dbSave(plain);
+		this.cloudPush(plain);
 		await this.refresh();
 	}
 
@@ -39,6 +67,7 @@ class CharactersStore {
 	async upsertSilent(c: Character) {
 		const plain = JSON.parse(JSON.stringify(c)) as Character;
 		await dbSave(plain);
+		this.cloudPush(plain);
 		// Best-effort: patch the in-memory list so the roster reflects the latest
 		// title/level without a round-trip. If the row is missing we just append.
 		const idx = this.state.items.findIndex((x) => x.id === plain.id);
@@ -48,6 +77,37 @@ class CharactersStore {
 		} else {
 			this.state.items = [plain, ...this.state.items];
 		}
+	}
+
+	// Fire-and-forget push to the cloud. Local Dexie is the source of truth for
+	// the next render — cloud is best-effort. Failures show up in the cloudSync
+	// store so the UI can surface them, but never block a save.
+	private cloudPush(c: Character) {
+		if (!c.cloudToken) return;
+		cloudSync.set(c.id, { kind: 'syncing' });
+		pushIfDirty(c)
+			.then((updated) => {
+				cloudSync.set(c.id, { kind: 'synced', at: updated.cloudSyncedAt ?? Date.now() });
+				// Persist the bumped cloudSyncedAt locally so we don't re-push the same
+				// state on every reload. Don't trigger a refresh — this is metadata.
+				dbSave(JSON.parse(JSON.stringify(updated))).catch(() => {
+					// Local write failed; not fatal — next save attempt will retry.
+				});
+			})
+			.catch((err: unknown) => {
+				if (err instanceof CloudConflictError) {
+					cloudSync.set(c.id, {
+						kind: 'conflict',
+						serverPayload: err.server.payload,
+						serverUpdatedAt: err.server.updated_at
+					});
+					return;
+				}
+				cloudSync.set(c.id, {
+					kind: 'error',
+					message: err instanceof Error ? err.message : 'sync failed'
+				});
+			});
 	}
 
 	async remove(id: string) {

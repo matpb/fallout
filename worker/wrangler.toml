@@ -1,0 +1,22 @@
+name = "fallout-sync"
+main = "src/index.ts"
+compatibility_date = "2024-09-25"
+workers_dev = true
+
+# To serve from a custom domain (api.fallout.matpb.com) instead of workers.dev,
+# add "Workers Routes:Edit" + "Zone:Read" scopes to the API token, then:
+# routes = [{ pattern = "api.fallout.matpb.com", custom_domain = true }]
+
+# CORS origins allowed to call this worker (comma-separated).
+# Set via `wrangler deploy --var CORS_ORIGINS:...` or in the dashboard,
+# but a sane default works locally.
+[vars]
+CORS_ORIGINS = "https://fallout.matpb.com,http://localhost:5173,http://localhost:4173"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fallout-sync"
+# database_id is filled in after `wrangler d1 create fallout-sync` and committed
+# (it is a public identifier, not a secret).
+database_id = "1d897cc2-8a98-4a34-af0e-f28e1eccc4cb"
+migrations_dir = "migrations"

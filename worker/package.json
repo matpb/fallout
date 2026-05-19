@@ -1,0 +1,20 @@
+{
+	"name": "fallout-sync",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "wrangler dev",
+		"deploy": "wrangler deploy",
+		"db:create": "wrangler d1 create fallout-sync",
+		"db:migrate:local": "wrangler d1 migrations apply fallout-sync --local",
+		"db:migrate:remote": "wrangler d1 migrations apply fallout-sync --remote",
+		"db:exec:local": "wrangler d1 execute fallout-sync --local --command",
+		"db:exec:remote": "wrangler d1 execute fallout-sync --remote --command"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20240821.1",
+		"typescript": "^5.6.2",
+		"wrangler": "^4.92.0"
+	}
+}

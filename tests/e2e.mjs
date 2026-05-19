@@ -854,6 +854,41 @@ let createdSheetUrl;
 	await ctx.close();
 }
 
+// =========================================================================
+// SECTION 13: Cloud backup panel
+// =========================================================================
+{
+	const ctx = await newCtx();
+	const page = await ctx.newPage();
+	page.on('pageerror', (e) => errors.push(`[s13 pageerror] ${e.message}`));
+	page.on('console', (m) => m.type() === 'error' && errors.push(`[s13 err] ${m.text()}`));
+
+	console.log(`\n=== SECTION 13: Cloud backup panel ===`);
+
+	await page.goto(`${url}/create`);
+	await fillSurvivorWizard(page, 'CloudGuy');
+	// fillSurvivorWizard already lands on /character/<id> after Save.
+	await page.waitForLoadState('networkidle');
+
+	const panel = page.locator('[data-testid="cloud-backup-panel"]');
+	expect('s13: cloud backup panel is visible', true, await panel.isVisible());
+
+	const enableBtn = page.locator('[data-testid="cloud-enable-btn"]');
+	expect('s13: enable button is present', true, await enableBtn.isVisible());
+
+	// PUBLIC_CLOUD_API_URL is unset in this preview build, so clicking enable
+	// should show the "not configured" error rather than crashing.
+	await enableBtn.click();
+	await page.waitForTimeout(300);
+	const errText = await page.locator('[data-testid="cloud-error"]').innerText();
+	expectTrue(
+		's13: enable without configured API shows a friendly error',
+		errText.toLowerCase().includes('not configured')
+	);
+
+	await ctx.close();
+}
+
 console.log(`\n=========== SUMMARY ===========`);
 console.log(`Failures: ${failures.length}`);
 failures.forEach((f) => console.log(`  ✗ ${f}`));

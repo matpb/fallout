@@ -197,6 +197,13 @@ export interface Character {
 	robotMods?: RobotModPick[]; // up to 3 per rulebook p.184
 	vaultNumber?: string; // Vault Dweller
 	vaultExperiment?: string; // Vault Dweller — once-per-quest complication reminder
+
+	// Cloud backup. Present iff the user opted in via the "Back up to cloud" toggle.
+	// `cloudToken` is the bearer credential — anyone with it can read/write/delete
+	// this character on the server. The user is told to save it (it's also the URL
+	// at /r/<cloudToken>). `cloudSyncedAt` is the last successful push timestamp.
+	cloudToken?: string;
+	cloudSyncedAt?: number;
 }
 
 export const SKILL_DEFAULT_ATTR: Record<SkillKey, SpecialKey> = {

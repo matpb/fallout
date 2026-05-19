@@ -48,6 +48,7 @@
 		type WeaponItem
 	} from '$lib/fallout/types';
 	import { v4 as uuid } from 'uuid';
+	import CloudBackupPanel from '$lib/CloudBackupPanel.svelte';
 
 	let character = $state<Character | null>(null);
 	let editingName = $state(false);
@@ -1591,6 +1592,8 @@
 				</label>
 			</div>
 		</section>
+
+		<CloudBackupPanel {character} />
 
 		<!-- Actions -->
 		<div class="flex flex-wrap items-center gap-2 no-print">
