@@ -876,15 +876,42 @@ let createdSheetUrl;
 	const enableBtn = page.locator('[data-testid="cloud-enable-btn"]');
 	expect('s13: enable button is present', true, await enableBtn.isVisible());
 
-	// PUBLIC_CLOUD_API_URL is unset in this preview build, so clicking enable
-	// should show the "not configured" error rather than crashing.
+	// Two paths: if PUBLIC_CLOUD_API_URL is unset (local dev with no .env),
+	// clicking enable shows the "not configured" error. If the build has the
+	// URL wired in (CI / production preview), clicking enable should round-trip
+	// to the worker, surface the recovery link, then we clean up by disabling.
 	await enableBtn.click();
-	await page.waitForTimeout(300);
-	const errText = await page.locator('[data-testid="cloud-error"]').innerText();
-	expectTrue(
-		's13: enable without configured API shows a friendly error',
-		errText.toLowerCase().includes('not configured')
-	);
+	await page.waitForTimeout(800);
+
+	const errEl = page.locator('[data-testid="cloud-error"]');
+	const errVisible = await errEl.isVisible();
+	const urlEl = page.locator('[data-testid="cloud-recovery-url"]');
+	const urlVisible = await urlEl.isVisible();
+
+	if (urlVisible) {
+		// Configured path — recovery URL came back.
+		const url = await urlEl.inputValue();
+		expectTrue('s13: recovery URL contains /r/ token path', url.includes('/r/'));
+		expectTrue('s13: recovery URL is non-trivial length', url.length > 20);
+
+		// Tear down the cloud row so the production DB doesn't accumulate test
+		// rubble. Override window.confirm to auto-accept the disable prompt.
+		await page.evaluate(() => {
+			window.confirm = () => true;
+		});
+		await page.locator('[data-testid="cloud-disable-btn"]').click();
+		await page.waitForTimeout(800);
+		const enableAgain = await page.locator('[data-testid="cloud-enable-btn"]').isVisible();
+		expect('s13: cloud sync can be disabled (cleanup)', true, enableAgain);
+	} else if (errVisible) {
+		const errText = await errEl.innerText();
+		expectTrue(
+			's13: enable without configured API shows a friendly error',
+			errText.toLowerCase().includes('not configured')
+		);
+	} else {
+		expect('s13: enable click produced either a recovery URL or a friendly error', true, false);
+	}
 
 	await ctx.close();
 }

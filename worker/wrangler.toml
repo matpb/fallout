@@ -11,7 +11,7 @@ workers_dev = true
 # Set via `wrangler deploy --var CORS_ORIGINS:...` or in the dashboard,
 # but a sane default works locally.
 [vars]
-CORS_ORIGINS = "https://fallout.matpb.com,http://localhost:5173,http://localhost:4173"
+CORS_ORIGINS = "https://fallout.matpb.com,http://localhost:5173,http://localhost:4173,http://127.0.0.1:5173,http://127.0.0.1:4173"
 
 [[d1_databases]]
 binding = "DB"
