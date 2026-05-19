@@ -6,6 +6,53 @@ interface Env {
 	CORS_ORIGINS: string;
 }
 
+// Per-IP rate limit using the Workers Cache API. Per-colo (same scope as
+// Cloudflare's native RateLimit binding would give), free, unmetered.
+// Slight race window when many requests from one IP land within a few ms of
+// each other — they may all see the same count before any write lands. The
+// budget is generous enough (100/60s) that the race doesn't help an abuser.
+const RL_LIMIT = 100;
+const RL_PERIOD_SEC = 60;
+
+interface RateLimitState {
+	c: number; // count in current window
+	r: number; // window reset time (unix seconds)
+}
+
+async function rateLimitAllow(key: string, ctx: ExecutionContext): Promise<boolean> {
+	const cache = caches.default;
+	// Cache API keys must be valid URLs. Use an internal-only scheme that can't
+	// collide with anything else routed through this worker.
+	const cacheKey = new Request(`https://rl.invalid/v1/${encodeURIComponent(key)}`);
+	const now = Math.floor(Date.now() / 1000);
+	const cached = await cache.match(cacheKey);
+	let state: RateLimitState = { c: 0, r: now + RL_PERIOD_SEC };
+	if (cached) {
+		try {
+			const data = (await cached.json()) as RateLimitState;
+			if (typeof data.c === 'number' && typeof data.r === 'number' && data.r > now) {
+				state = data;
+			}
+		} catch {
+			// Corrupt cache entry — treat as empty window.
+		}
+	}
+	state.c += 1;
+	if (state.c > RL_LIMIT) return false;
+	// Write back with TTL = remaining window. ctx.waitUntil lets the write
+	// finish after we've already returned the response — keeps p50 latency low.
+	const ttl = Math.max(1, state.r - now);
+	ctx.waitUntil(
+		cache.put(
+			cacheKey,
+			new Response(JSON.stringify(state), {
+				headers: { 'Cache-Control': `max-age=${ttl}` }
+			})
+		)
+	);
+	return true;
+}
+
 interface CharacterRow {
 	id: string;
 	token_hash: string;
@@ -249,21 +296,33 @@ async function handleDelete(id: string, req: Request, env: Env, cors: Headers): 
 }
 
 export default {
-	async fetch(req: Request, env: Env): Promise<Response> {
+	async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const allowed = new Set(
 			(env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean)
 		);
 		const cors = corsHeaders(req.headers.get('Origin'), allowed);
 
-		if (req.method === 'OPTIONS') {
-			return new Response(null, { status: 204, headers: cors });
-		}
-
 		const url = new URL(req.url);
 		const path = url.pathname.replace(/\/+$/, '');
 
+		// CORS preflight + healthz bypass the rate limit so browsers and monitoring
+		// don't get falsely blocked. Everything else costs one bucket token.
+		if (req.method === 'OPTIONS') {
+			return new Response(null, { status: 204, headers: cors });
+		}
 		if (path === '/healthz') {
 			return jsonResponse({ ok: true }, { status: 200 }, cors);
+		}
+
+		// Per-IP rate limit (100 req/60s per CF edge location). CF-Connecting-IP is
+		// always set on the public network — fallback "unknown" only kicks in for
+		// odd-internal-call edge cases, which all share one bucket (fine).
+		const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
+		const rlAllowed = await rateLimitAllow(ip, ctx);
+		if (!rlAllowed) {
+			const limitedHeaders = new Headers(cors);
+			limitedHeaders.set('Retry-After', String(RL_PERIOD_SEC));
+			return jsonResponse({ error: 'rate_limited' }, { status: 429 }, limitedHeaders);
 		}
 
 		if (path === '/v1/characters' && req.method === 'POST') {

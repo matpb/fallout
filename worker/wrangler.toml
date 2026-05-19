@@ -20,3 +20,8 @@ database_name = "fallout-sync"
 # (it is a public identifier, not a secret).
 database_id = "1d897cc2-8a98-4a34-af0e-f28e1eccc4cb"
 migrations_dir = "migrations"
+
+# Rate limiting is implemented in src/index.ts via the Cache API — the native
+# RateLimit binding is still in open beta and returns success:true at common
+# limits on this account. The cache approach is deterministic, free, and runs
+# per-Cloudflare-edge-colo (same scope as the native binding would have given).
