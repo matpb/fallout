@@ -32,7 +32,7 @@ npm run dev
 Wrangler reads `CLOUDFLARE_API_TOKEN` from the env. Do not put it in any file under this directory.
 
 ```sh
-export CLOUDFLARE_API_TOKEN="$(grep CLOUDFLARE_API_KEY ~/Cortex/.env | cut -d= -f2-)"
+export CLOUDFLARE_API_TOKEN="$(op read --account=my.1password.com "$(grep ^CLOUDFLARE_API_KEY= ~/Cortex/critical.env | cut -d= -f2-)")"
 npm run db:create                  # one-time; paste the printed database_id into wrangler.toml
 npm run db:migrate:remote
 npm run deploy
